@@ -2,12 +2,13 @@
 import requests
 import secrets
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 class FlyProvisioner:
     """
     Uses Fly.io Machines API to provision ephemeral VMs.
-    Each VM runs the C2 server (Sliver/Mythic/etc.) on an internal port.
+    Each VM runs a Docker image on an internal port.
+    Supports custom images per payload (C2 server, flipper platform, etc.)
     """
 
     BASE = "https://api.machines.dev/v1"
@@ -25,8 +26,23 @@ class FlyProvisioner:
     def _app_name(self, suffix: str) -> str:
         return f"{self.app_base}-{suffix}"
 
-    def provision_vm(self, suffix: str) -> Dict[str, Any]:
-        """Create a new Fly app + machine running the C2 server image."""
+    def provision_vm(
+        self,
+        suffix: str,
+        image: str = "registry.fly.io/chimera-c2:latest",
+        env: Optional[Dict[str, str]] = None,
+        memory_mb: int = 512,
+        machine_type: str = "shared-cpu-1x",
+    ) -> Dict[str, Any]:
+        """Create a new Fly app + machine running the specified image.
+
+        Args:
+            suffix: Unique suffix for the app name (timestamp-based).
+            image: Docker image to run. Defaults to the chimera C2 image.
+            env: Additional environment variables to inject into the VM.
+            memory_mb: VM memory in MB. Flipper needs 1024+.
+            machine_type: Fly machine type. Flipper needs shared-cpu-2x+.
+        """
         app_name = self._app_name(suffix)
         session_key = secrets.token_hex(16)
         internal_port = 8443
@@ -42,18 +58,22 @@ class FlyProvisioner:
         )
         resp.raise_for_status()
 
-        # 2. Launch a machine from the C2 Docker image
-        #    Image is pre-built: contains Sliver/Mythic server + auto-config script
+        # 2. Build env — merge defaults with caller-provided overrides
+        vm_env: Dict[str, str] = {
+            "SESSION_KEY": session_key,
+            "LISTEN_PORT": str(internal_port),
+            "PROXY_MODE": "resi",
+        }
+        if env:
+            vm_env.update(env)
+
+        # 3. Launch a machine from the specified Docker image
         machine_config: Dict[str, Any] = {
             "config": {
-                "image": "registry.fly.io/chimera-c2:latest",
+                "image": image,
                 "region": self.region,
                 "auto_destroy": False,
-                "env": {
-                    "SESSION_KEY": session_key,
-                    "LISTEN_PORT": str(internal_port),
-                    "PROXY_MODE": "resi"
-                },
+                "env": vm_env,
                 "services": [
                     {
                         "internal_port": internal_port,
@@ -65,9 +85,9 @@ class FlyProvisioner:
                         }
                     }
                 ],
-                "machine_type": "shared-cpu-1x",
-                "memory_mb": 512,
-                "size": "shared-cpu-1x"
+                "machine_type": machine_type,
+                "memory_mb": memory_mb,
+                "size": machine_type,
             }
         }
 
@@ -79,11 +99,11 @@ class FlyProvisioner:
         resp.raise_for_status()
         machine = resp.json()
 
-        # 3. Wait for VM to be "started"
+        # 4. Wait for VM to be "started"
         vm_id = machine["id"]
-        self._wait_for_state(app_name, vm_id, "started", timeout=90)
+        self._wait_for_state(app_name, vm_id, "started", timeout=120)
 
-        # 4. Allocate a dedicated IPv4 (ephemeral, new IP every cycle)
+        # 5. Allocate a dedicated IPv4 (ephemeral, new IP every cycle)
         resp = requests.post(
             f"https://api.fly.io/v4/apps/{app_name}/addresses",
             headers=self.headers,
@@ -98,10 +118,11 @@ class FlyProvisioner:
             "ip": vm_ip,
             "internal_port": internal_port,
             "session_key": session_key,
-            "region": self.region
+            "region": self.region,
+            "image": image,
         }
 
-    def _wait_for_state(self, app_name: str, vm_id: str, target: str, timeout: int = 90):
+    def _wait_for_state(self, app_name: str, vm_id: str, target: str, timeout: int = 120):
         deadline = time.time() + timeout
         while time.time() < deadline:
             resp = requests.get(

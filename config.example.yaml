@@ -19,3 +19,17 @@ proxy_pass: "password123"
 proxy_endpoint: "brd.superproxy.io:22225"
 
 cycle_minutes: 60
+
+# Flipper telemetry platform config
+# The flipper image must be pre-built and pushed to Fly registry:
+#   cd docker/flipper && bash build.sh
+flipper:
+  # OxaPay merchant key for subscription payments
+  # Use 'sandbox' for testing, real key for production
+  oxapay_merchant_key: "sandbox"
+
+  # External Postgres URL (optional)
+  # If set, flipper uses this instead of the embedded Postgres.
+  # Embedded Postgres is ephemeral (data dies with VM — anti-forensic).
+  # Set this ONLY if you need persistent data across rotation cycles.
+  # database_url: "postgresql://user:pass@host:5432/flipper_db"

