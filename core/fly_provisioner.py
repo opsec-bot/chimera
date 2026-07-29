@@ -25,11 +25,13 @@ class FlyProvisioner:
 
     def _app_name(self, suffix: str) -> str:
         # Fly app names: max 30 chars, lowercase alphanumeric + hyphens
+        # Cannot start or end with a hyphen
         name = f"{self.app_base}-{suffix}"
         if len(name) > 30:
-            # Truncate the suffix to fit
             max_suffix = 30 - len(self.app_base) - 1
             name = f"{self.app_base}-{suffix[:max_suffix]}"
+        # Strip trailing hyphens
+        name = name.rstrip("-")
         return name[:30]
 
     def provision_vm(
