@@ -383,6 +383,24 @@ def api_queue_task() -> Response:
     return jsonify({"status": "queued", "implant_id": implant_id})
 
 
+@app.route("/api/cleanup-orphans", methods=["POST"])
+def api_cleanup_orphans() -> Response:
+    """Find and destroy all orphaned Fly VMs from failed rotation cycles."""
+    try:
+        from core.fly_provisioner import FlyProvisioner
+        config = state.engine._config if state.engine else {}
+        fly = FlyProvisioner(
+            api_token=str(config.get("fly_api_token", "")),
+            org_slug=str(config.get("fly_org", "")),
+            region=str(config.get("fly_region", "iad")),
+            app_base=str(config.get("fly_app_base", "chimera-c2")),
+        )
+        destroyed = fly.cleanup_orphans()
+        return jsonify({"status": "ok", "destroyed": destroyed, "count": len(destroyed)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ---------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------

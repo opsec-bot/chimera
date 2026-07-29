@@ -168,3 +168,55 @@ class FlyProvisioner:
             f"{self.BASE}/apps/{app_name}",
             headers=self.headers
         )
+
+    def list_apps(self, org_slug: str = None) -> list[Dict[str, Any]]:
+        """List all apps in the org. Useful for finding orphaned VMs."""
+        org = org_slug or self.org
+        resp = requests.get(
+            f"{self.BASE}/apps",
+            headers=self.headers,
+            params={"org_slug": org}
+        )
+        if not resp.ok:
+            return []
+        return resp.json().get("apps", [])
+
+    def cleanup_orphans(self, app_prefix: str = "chimera-c2-") -> list[str]:
+        """Find and destroy all apps matching the prefix (except registry apps).
+        Returns list of destroyed app names."""
+        destroyed = []
+        apps = self.list_apps()
+        for app in apps:
+            name = app.get("name", "")
+            # Match rotation cycle apps but not the base registry apps
+            if name.startswith(app_prefix) and name not in ("chimera-c2", "chimera-flipper"):
+                # Extract any VM IDs and destroy them, then delete the app
+                machines = self._list_machines(name)
+                for m in machines:
+                    try:
+                        requests.delete(
+                            f"{self.BASE}/apps/{name}/machines/{m['id']}",
+                            headers=self.headers,
+                            params={"force": "true"}
+                        )
+                    except Exception:
+                        pass
+                try:
+                    requests.delete(
+                        f"{self.BASE}/apps/{name}",
+                        headers=self.headers
+                    )
+                    destroyed.append(name)
+                except Exception:
+                    pass
+        return destroyed
+
+    def _list_machines(self, app_name: str) -> list[Dict[str, Any]]:
+        """List all machines for an app."""
+        resp = requests.get(
+            f"{self.BASE}/apps/{app_name}/machines",
+            headers=self.headers
+        )
+        if not resp.ok:
+            return []
+        return resp.json()
