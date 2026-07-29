@@ -1,6 +1,6 @@
 # payloads_config.py — Operator defines what payloads to deploy each cycle
 
-from payload_registry import PayloadRegistry, PayloadDefinition
+from core.payload_registry import PayloadRegistry, PayloadDefinition
 
 def build_registry() -> PayloadRegistry:
     reg = PayloadRegistry()
@@ -63,3 +63,4 @@ def build_registry() -> PayloadRegistry:
     ))
 
     return reg
+

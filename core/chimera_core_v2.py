@@ -8,12 +8,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fly_provisioner import FlyProvisioner
-from vercel_deployer import VercelDeployer
-from deaddrop import DeadDrop
-from proxy_rotator import ProxyRotator
-from payload_registry import PayloadRegistry
-from polymorphic_renderer import PolymorphicRenderer
+from core.fly_provisioner import FlyProvisioner
+from core.vercel_deployer import VercelDeployer
+from core.deaddrop import DeadDrop
+from core.proxy_rotator import ProxyRotator
+from core.payload_registry import PayloadRegistry
+from core.polymorphic_renderer import PolymorphicRenderer
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
 
@@ -207,3 +207,4 @@ class ChimeraRotationV2:
             self._teardown(self._current)
         if self._previous:
             self._teardown(self._previous)
+

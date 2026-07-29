@@ -12,9 +12,15 @@ from collections import deque
 from typing import Any, Optional
 
 # Import the rotation engine + payload registry
-from chimera_core_v2 import ChimeraRotationV2
-from payloads_config import build_registry
-from deaddrop import DeadDrop
+import sys
+import os
+
+# Add parent directory to path so we can import core modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.chimera_core_v2 import ChimeraRotationV2
+from core.payloads_config import build_registry
+from core.deaddrop import DeadDrop
 
 app = Flask(__name__)
 

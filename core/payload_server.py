@@ -10,7 +10,7 @@ import hashlib
 import threading
 from typing import Any, Optional
 
-from polymorphic_renderer import PolymorphicRenderer
+from core.polymorphic_renderer import PolymorphicRenderer
 
 
 class PayloadServer(BaseHTTPRequestHandler):
@@ -217,3 +217,4 @@ def start_server() -> None:
 
 if __name__ == "__main__":
     start_server()
+

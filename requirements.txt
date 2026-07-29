@@ -1,0 +1,7 @@
+# requirements.txt — Chimera top-level dependencies
+# Core engine
+requests>=2.31.0
+pyyaml>=6.0.1
+
+# Dashboard
+flask>=3.0.0

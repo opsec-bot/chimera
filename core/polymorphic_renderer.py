@@ -7,7 +7,7 @@ import random
 import time
 from typing import Optional
 
-from payload_registry import PayloadDefinition
+from core.payload_registry import PayloadDefinition
 
 class PolymorphicRenderer:
     """
@@ -480,3 +480,4 @@ border-radius:12px;font-size:16px;cursor:pointer;font-weight:600;}}
 .{connect_cls}:hover{{background:#4a6fd1;}}
 .{modal_cls}{{margin-top:24px;padding:20px;background:#1a1a1a;border-radius:12px;}}
 .{status_cls}{{color:#aaa;font-size:14px;}}"""
+

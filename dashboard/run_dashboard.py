@@ -1,16 +1,24 @@
 # run_dashboard.py — Entry point
 """
 Chimera Operator Dashboard
-Run: python run_dashboard.py
+Run: python -m dashboard.run_dashboard
 Access: http://localhost:4444
 """
+import os
+import sys
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import yaml
 from typing import Any
-from dashboard import app, state
+from dashboard.dashboard import app, state
+
 
 def load_config(path: str = "config.yaml") -> dict[str, Any]:
     with open(path) as f:
         return yaml.safe_load(f) or {}
+
 
 if __name__ == "__main__":
     config: dict[str, Any] = load_config()
