@@ -41,7 +41,7 @@ if __name__ == "__main__":
     state.init(config)
 
     try:
-        app.run(host="127.0.0.1", port=4444, debug=False)
+        app.run(host="0.0.0.0", port=4444, debug=False)
     except KeyboardInterrupt:
         print("\n[dashboard] Shutting down...")
         state.shutdown()
