@@ -75,5 +75,5 @@ EOF
 echo "[proxy] Proxy environment configured"
 echo "[proxy] Backend will route outbound through $PROXY_HOST:$PROXY_PORT"
 
-# Keep the process alive for supervisor
-exec sleep infinity
+# Exit cleanly — entrypoint continues to supervisor
+exit 0

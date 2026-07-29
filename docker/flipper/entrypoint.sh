@@ -32,9 +32,9 @@ if [ ! -f /opt/flipper/certs/server.crt ]; then
     echo "[flipper] Generated internal TLS cert"
 fi
 
-# 3. Configure iptables: force ALL outbound through proxy chain
-#    Ensures the VM's real Fly.io IP never touches targets directly
-bash /opt/flipper/proxy-setup.sh
+# 3. Configure proxy environment (non-blocking — just writes env vars)
+#    The proxy-setup.sh script writes HTTP_PROXY env vars for the backend
+bash /opt/flipper/proxy-setup.sh &
 
 # 4. Push database schema (drizzle-kit syncs schema to Postgres)
 #    This creates all tables if they don't exist
