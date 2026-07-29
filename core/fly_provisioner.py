@@ -80,12 +80,19 @@ class FlyProvisioner:
             vm_env.update(env)
 
         # 3. Launch a machine from the specified Docker image
+        # Per Fly Machines API: region goes at top level, guest resources
+        # go in config.guest, services use ports with handlers
         machine_config: Dict[str, Any] = {
+            "region": self.region,
             "config": {
                 "image": image,
-                "region": self.region,
                 "auto_destroy": False,
                 "env": vm_env,
+                "guest": {
+                    "cpu_kind": "shared",
+                    "cpus": 1,
+                    "memory_mb": memory_mb,
+                },
                 "services": [
                     {
                         "internal_port": internal_port,
@@ -94,14 +101,18 @@ class FlyProvisioner:
                             "type": "requests",
                             "hard_limit": 1000,
                             "soft_limit": 500
-                        }
+                        },
+                        "ports": [
+                            {"port": 8443, "handlers": ["http", "tls"]},
+                        ],
                     }
                 ],
-                "machine_type": machine_type,
-                "memory_mb": memory_mb,
-                "size": machine_type,
-            }
+            },
         }
+
+        # Use machine_type as a size preset if it's not the default
+        if machine_type and machine_type != "shared-cpu-1x":
+            machine_config["config"]["size"] = machine_type
 
         resp = requests.post(
             f"{self.BASE}/apps/{app_name}/machines",
