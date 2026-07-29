@@ -320,11 +320,19 @@ p{color:#666;line-height:1.6}
             time.sleep(3)
         raise TimeoutError(f"Deployment {deployment_id} not ready in {timeout}s")
 
-    def destroy_deployment(self, deployment_id: str) -> None:
-        """Delete the deployment."""
+    def destroy_deployment(self, deployment_id: str, project_id: str = None) -> None:
+        """Delete the deployment and optionally the project."""
         team_id = self._resolve_team()
+        # Delete the deployment
         requests.delete(
             f"{self.BASE}/deployments/{deployment_id}",
             headers=self.headers,
             params={"teamId": team_id},
         )
+        # Delete the project too (prevents project buildup across rotation cycles)
+        if project_id:
+            requests.delete(
+                f"{self.BASE}/projects/{project_id}",
+                headers=self.headers,
+                params={"teamId": team_id},
+            )

