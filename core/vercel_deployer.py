@@ -1,4 +1,5 @@
 # vercel_deployer.py — Deploys ephemeral redirector pages
+import base64
 import json
 import requests
 import secrets
@@ -36,6 +37,15 @@ class VercelDeployer:
                 self._team_param["teamId"] = team["id"]
                 return str(team["id"])
         raise ValueError(f"Team '{self.team}' not found")
+
+    @staticmethod
+    def _encode_file(filename: str, data: str) -> Dict[str, str]:
+        """Encode a file for Vercel v13 deployments API (base64 inline)."""
+        return {
+            "file": filename,
+            "data": base64.b64encode(data.encode("utf-8")).decode("ascii"),
+            "encoding": "base64",
+        }
 
     # ------------------------------------------------------------------
     # Redirector deployment (reverse proxy → Fly VM)
@@ -92,17 +102,19 @@ class VercelDeployer:
         # 2. Build the deployment payload
         target_url = f"http://{target_host}:{target_port}"
 
+        # Vercel v13 requires files with base64 encoding
         files = [
-            {"file": "index.html", "data": self._cover_page_html()},
-            {"file": "vercel.json", "data": self._vercel_config(target_url, proxy_all=proxy_all)},
-            {"file": "package.json", "data": '{"name":"app","version":"1.0.0","private":true}'},
+            self._encode_file("index.html", self._cover_page_html()),
+            self._encode_file("vercel.json", self._vercel_config(target_url, proxy_all=proxy_all)),
+            self._encode_file("package.json", '{"name":"app","version":"1.0.0","private":true}'),
         ]
 
         # 3. Create deployment
+        # projectSettings required on first deployment of a project
         resp = requests.post(
             f"{self.BASE}/deployments",
             headers=self.headers,
-            params={"teamId": team_id, "projectId": project_id},
+            params={"teamId": team_id, "projectId": project_id, "skipAutoDetectionConfirmation": "1"},
             json={
                 "name": project_name,
                 "files": files,
@@ -110,11 +122,16 @@ class VercelDeployer:
                     "framework": None,
                     "buildCommand": None,
                     "outputDirectory": None,
+                    "installCommand": None,
                 },
                 "target": "production",
             },
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create deployment for '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
         deployment = resp.json()
 
         # 4. Wait for deployment to be ready
@@ -164,16 +181,16 @@ class VercelDeployer:
             )
         project_id = resp.json()["id"]
 
-        # Build file list for deployment
+        # Build file list for deployment (base64 encoded for Vercel v13)
         file_list: list[Dict[str, str]] = []
         for filename, content in files.items():
-            file_list.append({"file": filename, "data": content})
+            file_list.append(self._encode_file(filename, content))
 
         # Add vercel.json with spoofed headers
         file_list.append(
-            {
-                "file": "vercel.json",
-                "data": json.dumps(
+            self._encode_file(
+                "vercel.json",
+                json.dumps(
                     {
                         "version": 2,
                         "headers": [
@@ -188,21 +205,31 @@ class VercelDeployer:
                         ],
                     }
                 ),
-            }
+            )
         )
 
         # Deploy
         resp = requests.post(
             f"{self.BASE}/deployments",
             headers=self.headers,
-            params={"teamId": team_id, "projectId": project_id},
+            params={"teamId": team_id, "projectId": project_id, "skipAutoDetectionConfirmation": "1"},
             json={
                 "name": project_name,
                 "files": file_list,
+                "projectSettings": {
+                    "framework": None,
+                    "buildCommand": None,
+                    "outputDirectory": None,
+                    "installCommand": None,
+                },
                 "target": "production",
             },
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create deployment for '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
         deployment = resp.json()
         deployment_id = deployment["id"]
         deployment_url = deployment.get("url", f"{project_name}.vercel.app")
