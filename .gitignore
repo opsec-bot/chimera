@@ -17,6 +17,9 @@ eggs/
 lib/
 lib64/
 parts/
+
+# Don't ignore flipper frontend lib
+!flipper/web/src/lib/
 sdist/
 var/
 wheels/
