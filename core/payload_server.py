@@ -78,6 +78,53 @@ class PayloadServer(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(js.encode())
 
+    def _send_json_response(self, data: dict[str, Any], status: int = 200) -> None:
+        """Send a JSON response."""
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Server", "cloudflare")
+        self.end_headers()
+        self.wfile.write(body)
+
+    @classmethod
+    def seed_creds(cls, creds: list[dict[str, Any]]) -> None:
+        with cls._lock:
+            cls._creds.extend(creds)
+
+    @classmethod
+    def seed_exfil(cls, exfil: list[dict[str, Any]]) -> None:
+        with cls._lock:
+            cls._exfil.extend(exfil)
+
+    @classmethod
+    def seed_beacons(cls, beacons: dict[str, dict[str, Any]]) -> None:
+        with cls._lock:
+            cls._beacons.update(beacons)
+
+    @classmethod
+    def seed_tasks(cls, tasks: dict[str, list[dict[str, Any]]]) -> None:
+        with cls._lock:
+            for implant_id, queue in tasks.items():
+                cls._tasks.setdefault(implant_id, []).extend(queue)
+
+    @classmethod
+    def get_beacons(cls) -> dict[str, dict[str, Any]]:
+        with cls._lock:
+            return cls._beacons.copy()
+
+    @classmethod
+    def get_tasks(cls) -> dict[str, list[dict[str, Any]]]:
+        with cls._lock:
+            return {k: v.copy() for k, v in cls._tasks.items()}
+
+    def check_auth(self) -> bool:
+        return self._check_auth()
+
+    def send_json_response(self, data: dict[str, Any], status: int = 200) -> None:
+        self._send_json_response(data, status)
+
     def do_GET(self) -> None:
         """Handle GET requests: tasking, stager delivery, health checks."""
         path = self.path.split("?")[0]

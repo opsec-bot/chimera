@@ -1,126 +1,140 @@
 <!-- templates/implants.html -->
-{% extends "base.html" %}
-{% block title %}Implants{% endblock %}
-{% block nav_implants %}active{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Implants{% endblock %} {% block
+nav_implants %}active{% endblock %} {% block content %}
 <div class="page-header">
-    <h2>Implant Management</h2>
-    <div class="meta">Beacon feed · task queue · live status</div>
+  <h2>Implant Management</h2>
+  <div class="meta">Beacon feed · task queue · live status</div>
 </div>
 
 <!-- Beacon feed -->
 <div class="card">
-    <div class="card-header">
-        <div class="card-title">Beacon Feed</div>
-        <div class="card-subtitle">{{ beacons | length }} implants seen</div>
-    </div>
-    {% if beacons %}
-    <table>
-        <thead>
-            <tr>
-                <th>Implant ID</th>
-                <th>Source IP</th>
-                <th>Last Check-in</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for b in beacons %}
-            <tr>
-                <td class="mono">{{ b.id }}</td>
-                <td class="mono">{{ b.ip }}</td>
-                <td>{{ b.last_seen }}</td>
-                <td>
-                    {% if b.status == "active" %}
-                    <span class="badge green">Active</span>
-                    {% else %}
-                    <span class="badge yellow">Dormant</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <button class="btn btn-sm" onclick="document.getElementById('task-implant-id').value='{{ b.id }}'">
-                        Queue Task
-                    </button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div style="color:var(--text-dim);padding:20px;text-align:center;">
-        No implants have beaconed yet. Waiting for first check-in...
-    </div>
-    {% endif %}
+  <div class="card-header">
+    <div class="card-title">Beacon Feed</div>
+    <div class="card-subtitle">{{ beacons | length }} implants seen</div>
+  </div>
+  {% if beacons %}
+  <table>
+    <thead>
+      <tr>
+        <th>Implant ID</th>
+        <th>Source IP</th>
+        <th>Last Check-in</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in beacons %}
+      <tr>
+        <td class="mono">{{ b.id }}</td>
+        <td class="mono">{{ b.ip }}</td>
+        <td>{{ b.last_seen }}</td>
+        <td>
+          {% if b.status == "active" %}
+          <span class="badge green">Active</span>
+          {% else %}
+          <span class="badge yellow">Dormant</span>
+          {% endif %}
+        </td>
+        <td>
+          <button
+            class="btn btn-sm"
+            onclick="document.getElementById('task-implant-id').value='{{ b.id }}'"
+          >
+            Queue Task
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color: var(--text-dim); padding: 20px; text-align: center">
+    No implants have beaconed yet. Waiting for first check-in...
+  </div>
+  {% endif %}
 </div>
 
 <!-- Task queue form -->
 <div class="card">
-    <div class="card-header">
-        <div class="card-title">Queue New Task</div>
-        <div class="card-subtitle">Task is delivered on next beacon check-in</div>
+  <div class="card-header">
+    <div class="card-title">Queue New Task</div>
+    <div class="card-subtitle">Task is delivered on next beacon check-in</div>
+  </div>
+  <form action="/implants/queue" method="POST">
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Target Implant ID</label>
+        <input
+          type="text"
+          name="implant_id"
+          id="task-implant-id"
+          placeholder="default or specific ID"
+        />
+      </div>
+      <div class="form-row">
+        <label>Task Type</label>
+        <select name="task_type">
+          <option value="shell">Execute Shell Command</option>
+          <option value="download">Download & Execute</option>
+          <option value="upload">Upload File</option>
+          <option value="screenshot">Capture Screenshot</option>
+          <option value="keylog">Start Keylogger</option>
+          <option value="persist">Establish Persistence</option>
+          <option value="lateral">Lateral Movement</option>
+          <option value="cleanup">Cleanup & Exit</option>
+          <option value="custom">Custom Payload</option>
+        </select>
+      </div>
     </div>
-    <form action="/implants/queue" method="POST">
-        <div class="form-grid">
-            <div class="form-row">
-                <label>Target Implant ID</label>
-                <input type="text" name="implant_id" id="task-implant-id" placeholder="default or specific ID">
-            </div>
-            <div class="form-row">
-                <label>Task Type</label>
-                <select name="task_type">
-                    <option value="shell">Execute Shell Command</option>
-                    <option value="download">Download & Execute</option>
-                    <option value="upload">Upload File</option>
-                    <option value="screenshot">Capture Screenshot</option>
-                    <option value="keylog">Start Keylogger</option>
-                    <option value="persist">Establish Persistence</option>
-                    <option value="lateral">Lateral Movement</option>
-                    <option value="cleanup">Cleanup & Exit</option>
-                    <option value="custom">Custom Payload</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-row">
-            <label>Task Data / Command</label>
-            <textarea name="task_data" rows="4" placeholder="Enter command, URL, or task parameters..."></textarea>
-        </div>
-        <button type="submit">Queue Task</button>
-    </form>
+    <div class="form-row">
+      <label>Task Data / Command</label>
+      <textarea
+        name="task_data"
+        rows="4"
+        placeholder="Enter command, URL, or task parameters..."
+      ></textarea>
+    </div>
+    <button type="submit">Queue Task</button>
+  </form>
 </div>
 
 <!-- Pending tasks -->
 <div class="card">
-    <div class="card-header">
-        <div class="card-title">Pending Task Queue</div>
-        <div class="card-subtitle">Tasks waiting for implant check-in</div>
-    </div>
-    {% if tasks %}
-    <table>
-        <thead>
-            <tr><th>Implant ID</th><th>Tasks</th></tr>
-        </thead>
-        <tbody>
-            {% for impl_id, task_list in tasks.items() %}
-            <tr>
-                <td class="mono">{{ impl_id }}</td>
-                <td>
-                    {% for t in task_list %}
-                    <div style="margin-bottom:8px;">
-                        <span class="badge blue">{{ t.type }}</span>
-                        <span class="mono" style="margin-left:8px;">{{ t.data[:80] }}{% if t.data|length > 80 %}...{% endif %}</span>
-                    </div>
-                    {% endfor %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div style="color:var(--text-dim);padding:20px;text-align:center;">
-        No tasks queued.
-    </div>
-    {% endif %}
+  <div class="card-header">
+    <div class="card-title">Pending Task Queue</div>
+    <div class="card-subtitle">Tasks waiting for implant check-in</div>
+  </div>
+  {% if tasks %}
+  <table>
+    <thead>
+      <tr>
+        <th>Implant ID</th>
+        <th>Tasks</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for impl_id, task_list in tasks.items() %}
+      <tr>
+        <td class="mono">{{ impl_id }}</td>
+        <td>
+          {% for t in task_list %}
+          <div style="margin-bottom: 8px">
+            <span class="badge blue">{{ t.type }}</span>
+            <span class="mono" style="margin-left: 8px"
+              >{{ t.data[:80] }}{% if t.data|length > 80 %}...{% endif %}</span
+            >
+          </div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color: var(--text-dim); padding: 20px; text-align: center">
+    No tasks queued.
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

