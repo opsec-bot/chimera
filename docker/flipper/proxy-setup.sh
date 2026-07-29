@@ -1,12 +1,15 @@
 #!/bin/bash
 # proxy-setup.sh — Force all outbound traffic through residential proxy
 # Same logic as the chimera C2 VM — keeps the flipper VM's real IP hidden.
+# Supports SnowProxies (static auth, gateway rotates IPs) and session-based
+# providers (Bright Data, Oxylabs, SmartProxy).
 
 set -euo pipefail
 
 PROXY_ENDPOINT="${PROXY_ENDPOINT:-}"
 PROXY_USER="${PROXY_USER:-}"
 PROXY_PASS="${PROXY_PASS:-}"
+PROXY_AUTH_FORMAT="${PROXY_AUTH_FORMAT:-static}"  # "static" or "session"
 
 if [ -z "$PROXY_ENDPOINT" ]; then
     echo "[proxy] No proxy endpoint configured — direct egress"
@@ -18,15 +21,19 @@ PROXY_HOST=$(echo "$PROXY_ENDPOINT" | cut -d: -f1)
 PROXY_PORT=$(echo "$PROXY_ENDPOINT" | cut -d: -f2)
 
 # Build proxy auth string
-if [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
-    PROXY_AUTH="${PROXY_USER}:${PROXY_PASS}@"
+if [ "$PROXY_AUTH_FORMAT" = "session" ]; then
+    # Session-based: user-session-{id}:pass (Bright Data, Oxylabs, SmartProxy)
+    SESSION_ID=$(openssl rand -hex 8)
+    PROXY_AUTH="${PROXY_USER}-session-${SESSION_ID}:${PROXY_PASS}"
 else
-    PROXY_AUTH=""
+    # Static: user:pass (SnowProxies — gateway handles rotation)
+    PROXY_AUTH="${PROXY_USER}:${PROXY_PASS}"
 fi
 
-PROXY_URL="http://${PROXY_AUTH}${PROXY_HOST}:${PROXY_PORT}"
+PROXY_URL="http://${PROXY_AUTH}@${PROXY_HOST}:${PROXY_PORT}"
 
-echo "[proxy] Configuring iptables to route egress through $PROXY_HOST:$PROXY_PORT"
+echo "[proxy] Configuring egress through $PROXY_HOST:$PROXY_PORT"
+echo "[proxy] Auth format: $PROXY_AUTH_FORMAT"
 
 # Flush existing rules
 iptables -F

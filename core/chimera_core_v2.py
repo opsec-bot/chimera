@@ -48,6 +48,7 @@ class ChimeraRotationV2:
             endpoint=str(config["proxy_endpoint"]),
         )
         self.registry = payload_registry
+        self._config = config
         self.cycle_minutes: int = int(config.get("cycle_minutes", 60))
         self._current: Optional[dict[str, Any]] = None
         self._previous: Optional[dict[str, Any]] = None
@@ -81,6 +82,11 @@ class ChimeraRotationV2:
                 # Build VM env from payload config
                 vm_env: dict[str, str] = {
                     "DEPLOYMENT_SEED": deployment_seed,
+                    # Proxy creds — every VM routes egress through residential proxy
+                    "PROXY_ENDPOINT": str(self._config.get("proxy_endpoint", "")),
+                    "PROXY_USER": str(self._config.get("proxy_user", "")),
+                    "PROXY_PASS": str(self._config.get("proxy_pass", "")),
+                    "PROXY_AUTH_FORMAT": "static" if self._config.get("proxy_provider") == "snowproxies" else "session",
                 }
                 if pdef.custom_config:
                     for k, v in pdef.custom_config.items():

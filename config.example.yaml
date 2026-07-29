@@ -13,10 +13,10 @@ vercel_project_base: "cloudsync-front"
 github_token: "ghp_xxxxxxxxxxxx"
 gist_id: "abc123def456"
 
-proxy_provider: "brightdata"
-proxy_user: "brd-customer-xxxx"
-proxy_pass: "password123"
-proxy_endpoint: "brd.superproxy.io:22225"
+proxy_provider: "snowproxies"
+proxy_user: "pxc1f2bb0f8e8b75d903"
+proxy_pass: "c20957afbcf2249effb86fd4e8217ba6"
+proxy_endpoint: "na.snowproxies.com:8081"
 
 cycle_minutes: 60
 
