@@ -40,7 +40,7 @@ bash /opt/flipper/proxy-setup.sh &
 #    This creates all tables if they don't exist
 echo "[flipper] Pushing database schema..."
 cd /opt/flipper
-npx drizzle-kit push:pg --schema=src/db/schema/* 2>/dev/null || echo "[flipper] Schema push warning (non-fatal, app will retry)"
+npx drizzle-kit push --driver pg --schema=src/db/schema/* 2>/dev/null || echo "[flipper] Schema push warning (non-fatal, app will retry)"
 
 # 5. Start supervisor (manages nginx + node backend + proxy + healthcheck)
 echo "[flipper] Starting supervisor..."
