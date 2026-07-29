@@ -36,10 +36,11 @@ fi
 #    Ensures the VM's real Fly.io IP never touches targets directly
 bash /opt/flipper/proxy-setup.sh
 
-# 4. Run database migrations
-echo "[flipper] Running migrations..."
+# 4. Push database schema (drizzle-kit syncs schema to Postgres)
+#    This creates all tables if they don't exist
+echo "[flipper] Pushing database schema..."
 cd /opt/flipper
-node dist/migrate.js || echo "[flipper] Migration warning (non-fatal)"
+npx drizzle-kit push:pg --schema=src/db/schema/* 2>/dev/null || echo "[flipper] Schema push warning (non-fatal, app will retry)"
 
 # 5. Start supervisor (manages nginx + node backend + proxy + healthcheck)
 echo "[flipper] Starting supervisor..."

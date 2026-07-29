@@ -45,8 +45,9 @@ COPY --from=frontend-build /app/web/dist ./web/dist
 
 RUN npm run build
 
-# Prune dev deps for smaller image
-RUN npm prune --production
+# Prune dev deps for smaller image — but keep drizzle-kit (needed for schema push on boot)
+RUN npm prune --production || true
+RUN npm install drizzle-kit@0.20.4 --save || true
 
 # ---------------------------------------------------------------
 # Stage 3: Final runtime image
@@ -87,6 +88,7 @@ COPY --from=backend-build /app/web/dist ./web/dist
 COPY --from=backend-build /app/src/migrate.ts ./src/migrate.ts
 COPY --from=backend-build /app/src/db ./src/db
 COPY --from=backend-build /app/tsconfig.json ./
+COPY --from=backend-build /app/drizzle.config.ts ./
 
 # Copy Docker support files
 COPY docker/flipper/entrypoint.sh /opt/flipper/entrypoint.sh
