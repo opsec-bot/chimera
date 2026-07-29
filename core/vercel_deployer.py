@@ -63,12 +63,13 @@ class VercelDeployer:
         project_name = project_name.rstrip("-").lower()[:52]
 
         # 1. Create project (no framework — static deployment)
+        # teamId goes in query params, not body
         resp = requests.post(
             f"{self.BASE}/projects",
             headers=self.headers,
+            params={"teamId": team_id},
             json={
                 "name": project_name,
-                "teamId": team_id,
             },
         )
         # If project name collision, append random suffix
@@ -77,7 +78,8 @@ class VercelDeployer:
             resp = requests.post(
                 f"{self.BASE}/projects",
                 headers=self.headers,
-                json={"name": project_name, "teamId": team_id},
+                params={"teamId": team_id},
+                json={"name": project_name},
             )
         if not resp.ok:
             raise RuntimeError(
@@ -144,14 +146,16 @@ class VercelDeployer:
         resp = requests.post(
             f"{self.BASE}/projects",
             headers=self.headers,
-            json={"name": project_name, "teamId": team_id},
+            params={"teamId": team_id},
+            json={"name": project_name},
         )
         if resp.status_code == 409:
             project_name = f"{project_name}-{secrets.token_hex(3)}"
             resp = requests.post(
                 f"{self.BASE}/projects",
                 headers=self.headers,
-                json={"name": project_name, "teamId": team_id},
+                params={"teamId": team_id},
+                json={"name": project_name},
             )
         if not resp.ok:
             raise RuntimeError(
