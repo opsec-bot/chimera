@@ -24,7 +24,13 @@ class FlyProvisioner:
         }
 
     def _app_name(self, suffix: str) -> str:
-        return f"{self.app_base}-{suffix}"
+        # Fly app names: max 30 chars, lowercase alphanumeric + hyphens
+        name = f"{self.app_base}-{suffix}"
+        if len(name) > 30:
+            # Truncate the suffix to fit
+            max_suffix = 30 - len(self.app_base) - 1
+            name = f"{self.app_base}-{suffix[:max_suffix]}"
+        return name[:30]
 
     def provision_vm(
         self,
@@ -56,7 +62,11 @@ class FlyProvisioner:
                 "org_slug": self.org,
             }
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Fly API: failed to create app '{app_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
 
         # 2. Build env — merge defaults with caller-provided overrides
         vm_env: Dict[str, str] = {
@@ -96,7 +106,11 @@ class FlyProvisioner:
             headers=self.headers,
             json=machine_config
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Fly API: failed to create machine for app '{app_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
         machine = resp.json()
 
         # 4. Wait for VM to be "started"

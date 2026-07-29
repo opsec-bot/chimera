@@ -150,9 +150,9 @@ nav_deployments %}active{% endblock %} {% block content %}
         "
       ></div>
       <div>
-        <div style="font-size: 13px">Current cycle: {{ cycle.cycle_ts }}</div>
+        <div style="font-size: 13px">Current cycle: {{ cycle.get('cycle_ts', '—') }}</div>
         <div style="font-size: 11px; color: var(--text-dim)">
-          {{ cycle.elapsed_seconds // 60 }}m elapsed
+          {% if cycle.get('elapsed_seconds') %}{{ cycle.elapsed_seconds // 60 }}m elapsed{% else %}awaiting first cycle{% endif %}
         </div>
       </div>
     </div>
