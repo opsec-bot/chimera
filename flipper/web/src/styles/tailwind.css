@@ -1,0 +1,141 @@
+@import 'tailwindcss';
+
+/*
+ * Flipper design tokens — dark-neutral, Vercel-style.
+ * Single source of truth for color, radius, and shadow.
+ * No light mode: :root is the only theme.
+ */
+
+:root {
+  /* Surface hierarchy (near-black → raised → muted) */
+  --color-background: #0a0a0a;
+  --color-foreground: #fafafa;
+  --color-card: #111111;
+  --color-card-foreground: #fafafa;
+  --color-popover: #111111;
+  --color-popover-foreground: #fafafa;
+
+  /* Muted surfaces / quiet text */
+  --color-muted: #1a1a1a;
+  --color-muted-foreground: #a1a1aa;
+
+  /* Borders & inputs */
+  --color-border: #262626;
+  --color-input: #1a1a1a;
+  --color-ring: #525252;
+
+  /* Primary = white-on-black CTAs (Vercel-style) */
+  --color-primary: #fafafa;
+  --color-primary-foreground: #0a0a0a;
+
+  /* Secondary = subdued surfaces / secondary buttons */
+  --color-secondary: #1f1f1f;
+  --color-secondary-foreground: #fafafa;
+
+  /* Accent = hover/active states on neutral surfaces */
+  --color-accent: #1f1f1f;
+  --color-accent-foreground: #fafafa;
+
+  /* Functional colors — kept restrained, used for status only */
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fafafa;
+  --color-success: #10b981;
+  --color-success-foreground: #052e1c;
+  --color-warning: #f59e0b;
+  --color-warning-foreground: #1c1300;
+  --color-info: #3b82f6;
+  --color-info-foreground: #fafafa;
+
+  /* Radius scale (6px base, Vercel-tight) */
+  --radius: 0.375rem;
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+/*
+ * Tell Tailwind v4 about every token so utilities like bg-success, text-warning,
+ * border-input, rounded-lg, etc. resolve. This replaces the legacy
+ * tailwind.config.cjs `theme.extend.colors` map.
+ */
+@theme inline {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-card: var(--color-card);
+  --color-card-foreground: var(--color-card-foreground);
+  --color-popover: var(--color-popover);
+  --color-popover-foreground: var(--color-popover-foreground);
+  --color-muted: var(--color-muted);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-border: var(--color-border);
+  --color-input: var(--color-input);
+  --color-ring: var(--color-ring);
+  --color-primary: var(--color-primary);
+  --color-primary-foreground: var(--color-primary-foreground);
+  --color-secondary: var(--color-secondary);
+  --color-secondary-foreground: var(--color-secondary-foreground);
+  --color-accent: var(--color-accent);
+  --color-accent-foreground: var(--color-accent-foreground);
+  --color-destructive: var(--color-destructive);
+  --color-destructive-foreground: var(--color-destructive-foreground);
+  --color-success: var(--color-success);
+  --color-success-foreground: var(--color-success-foreground);
+  --color-warning: var(--color-warning);
+  --color-warning-foreground: var(--color-warning-foreground);
+  --color-info: var(--color-info);
+  --color-info-foreground: var(--color-info-foreground);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-none;
+  }
+  html,
+  body,
+  #root {
+    @apply bg-background text-foreground;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom scrollbars — quiet neutrals to match the dark surface */
+@layer utilities {
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #3a3a3a;
+  }
+}
+</content>
+</invoke>

@@ -1,0 +1,45 @@
+# Dependency directories
+node_modules/
+
+# Build output
+dist/
+
+# Uploaded files
+uploads/
+
+# Environment variables
+.env
+
+# Sensitive or generated data files
+prices.json
+
+# VSCode settings
+.vscode/settings.json
+
+# Electron package files
+*.asar
+
+# Public executables
+public/*.exe
+
+# Database files
+data/app.db
+data/sessions.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+/temp
+*.db-journal
+/assets
+/notes

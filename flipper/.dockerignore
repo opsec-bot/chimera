@@ -1,0 +1,11 @@
+node_modules
+dist
+uploads
+*.log
+.env
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+*.md
+*.tsbuildinfo
