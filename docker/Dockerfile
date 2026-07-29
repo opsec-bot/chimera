@@ -33,23 +33,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM base AS sliver-stage
 
 # Sliver binary (pre-compiled, pinned version for reproducibility)
+# Release assets are raw binaries, not zips:
+#   sliver-server_linux (amd64), sliver-server_macos-arm64 (arm64)
 ARG SLIVER_VERSION=v1.5.41
 ARG SLIVER_URL="https://github.com/BishopFox/sliver/releases/download"
 
 RUN ARCH=$(dpkg --print-architecture) && \
     case "$ARCH" in \
-        amd64) SLIVER_ARCH="linux_amd64" ;; \
-        arm64) SLIVER_ARCH="linux_arm64" ;; \
+        amd64) SLIVER_BIN="sliver-server_linux" ;; \
+        arm64) SLIVER_BIN="sliver-server_macos-arm64" ;; \
         *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
     esac && \
-    wget -qO /tmp/sliver.zip \
-        "${SLIVER_URL}/${SLIVER_VERSION}/sliver_${SLIVER_ARCH}.zip" && \
-    apt-get update && apt-get install -y --no-install-recommends unzip && \
-    unzip /tmp/sliver.zip -d /tmp/sliver && \
-    mv /tmp/sliver/sliver /usr/local/bin/sliver && \
-    chmod +x /usr/local/bin/sliver && \
-    rm -rf /tmp/sliver* && \
-    apt-get purge -y unzip && rm -rf /var/lib/apt/lists/*
+    wget -qO /usr/local/bin/sliver \
+        "${SLIVER_URL}/${SLIVER_VERSION}/${SLIVER_BIN}" && \
+    chmod +x /usr/local/bin/sliver
 
 # ---------------------------------------------------------------
 # Stage 3: Final image
