@@ -1,6 +1,7 @@
 # proxy_rotator.py — Rotates residential proxy pool per cycle
 import requests
 import secrets
+from typing import Any, Dict, Optional
 
 class ProxyRotator:
     """
@@ -28,13 +29,13 @@ class ProxyRotator:
         }
     }
 
-    def __init__(self, provider: str, username: str, password: str, endpoint: str = None):
+    def __init__(self, provider: str, username: str, password: str, endpoint: Optional[str] = None):
         self.provider = provider
         self.user = username
         self.pwd = password
         self.endpoint = endpoint or self.PROVIDERS[provider]["endpoint"]
 
-    def rotate_pool(self) -> dict:
+    def rotate_pool(self) -> Dict[str, Any]:
         """Generate a new proxy session with a fresh residential IP."""
         session_id = secrets.token_hex(8)
         auth = self.PROVIDERS[self.provider]["auth_format"].format(

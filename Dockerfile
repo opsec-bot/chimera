@@ -69,36 +69,7 @@ RUN chmod +x /opt/chimera/entrypoint.sh \
     /opt/chimera/healthcheck.sh
 
 # Supervisor config — manages Sliver + proxy chain + health monitor
-RUN cat > /etc/supervisor/conf.d/chimera.conf << 'EOF'
-[supervisord]
-nodaemon=true
-logfile=/var/log/supervisord.log
-pidfile=/var/run/supervisord.pid
-
-[program:sliver]
-command=/usr/local/bin/sliver server --config /opt/chimera/sliver.toml
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/sliver.log
-stderr_logfile=/var/log/sliver_err.log
-priority=20
-
-[program:proxy-chain]
-command=/opt/chimera/proxy-setup.sh
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/proxy.log
-stderr_logfile=/var/log/proxy_err.log
-priority=10
-
-[program:healthcheck]
-command=/opt/chimera/healthcheck.sh
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/health.log
-stderr_logfile=/var/log/health_err.log
-priority=30
-EOF
+COPY supervisor.conf /etc/supervisor/conf.d/chimera.conf
 
 # Expose the C2 listener port (Vercel redirects /api/* → this port)
 EXPOSE 8443

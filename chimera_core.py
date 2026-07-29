@@ -3,6 +3,7 @@ import time
 import threading
 import logging
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from fly_provisioner import FlyProvisioner
 from vercel_deployer import VercelDeployer
@@ -17,7 +18,7 @@ class ChimeraRotation:
     Each cycle: provision new infra → update dead drop → teardown old infra.
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: Dict[str, Any]):
         self.fly = FlyProvisioner(
             api_token=config["fly_api_token"],
             org_slug=config["fly_org"],
@@ -41,12 +42,12 @@ class ChimeraRotation:
         )
 
         self.cycle_minutes = config.get("cycle_minutes", 60)
-        self._current = None          # holds active session metadata
-        self._previous = None         # holds previous session for teardown
+        self._current: Optional[Dict[str, Any]] = None          # holds active session metadata
+        self._previous: Optional[Dict[str, Any]] = None         # holds previous session for teardown
         self._lock = threading.Lock()
         self._running = False
 
-    def _rotate_cycle(self) -> dict:
+    def _rotate_cycle(self) -> Dict[str, Any]:
         """Single rotation: build new, swap, destroy old."""
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
@@ -70,7 +71,7 @@ class ChimeraRotation:
         # proxy_session = {proxy_url, proxy_auth, rotation_token}
 
         # 4. Push new endpoint config to dead drop
-        new_config = {
+        new_config: Dict[str, Any] = {
             "v": 1,
             "ts": ts,
             "url": f"https://{vercel_session['deployment_url']}",
@@ -88,7 +89,7 @@ class ChimeraRotation:
             "ts": ts
         }
 
-    def _teardown(self, session: dict):
+    def _teardown(self, session: Optional[Dict[str, Any]]):
         """Destroy previous cycle's infrastructure."""
         if not session:
             return

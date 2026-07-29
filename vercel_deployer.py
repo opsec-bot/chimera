@@ -2,6 +2,7 @@
 import requests
 import secrets
 import time
+from typing import Any, Dict
 
 class VercelDeployer:
     """
@@ -34,7 +35,7 @@ class VercelDeployer:
                 return team["id"]
         raise ValueError(f"Team '{self.team}' not found")
 
-    def deploy_redirector(self, target_host: str, target_port: int, suffix: str) -> dict:
+    def deploy_redirector(self, target_host: str, target_port: int, suffix: str) -> Dict[str, Any]:
         """Create a new Vercel project + deployment that proxies to the Fly VM."""
         team_id = self._resolve_team()
         project_name = f"{self.project_base}-{suffix}"

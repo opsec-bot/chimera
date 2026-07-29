@@ -2,6 +2,7 @@
 import requests
 import secrets
 import time
+from typing import Any, Dict
 
 class FlyProvisioner:
     """
@@ -24,7 +25,7 @@ class FlyProvisioner:
     def _app_name(self, suffix: str) -> str:
         return f"{self.app_base}-{suffix}"
 
-    def provision_vm(self, suffix: str) -> dict:
+    def provision_vm(self, suffix: str) -> Dict[str, Any]:
         """Create a new Fly app + machine running the C2 server image."""
         app_name = self._app_name(suffix)
         session_key = secrets.token_hex(16)
@@ -43,7 +44,7 @@ class FlyProvisioner:
 
         # 2. Launch a machine from the C2 Docker image
         #    Image is pre-built: contains Sliver/Mythic server + auto-config script
-        machine_config = {
+        machine_config: Dict[str, Any] = {
             "config": {
                 "image": "registry.fly.io/chimera-c2:latest",
                 "region": self.region,
@@ -88,7 +89,7 @@ class FlyProvisioner:
             headers=self.headers,
             json={"type": "shared_ipv4"}
         )
-        ip_data = resp.json() if resp.ok else {}
+        ip_data: Dict[str, Any] = resp.json() if resp.ok else {}
         vm_ip = ip_data.get("address", machine.get("private_ip", "unknown"))
 
         return {

