@@ -172,7 +172,7 @@ class ChimeraRotationV2:
                     None,
                 )
                 if flipper_session:
-                    target_host = flipper_session["ip"]
+                    target_host = flipper_session.get("hostname") or flipper_session["ip"]
                     target_port = flipper_session["internal_port"]
                     vdep = self.vercel.deploy_redirector(
                         target_host=target_host,

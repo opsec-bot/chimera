@@ -100,6 +100,8 @@ class VercelDeployer:
         project_id = project["id"]
 
         # 2. Build the deployment payload
+        # Use hostname (app-name.fly.dev) instead of raw IP — Fly VMs get IPv6
+        # fdaa:... addresses and colons break Vercel's rewrite parser
         target_url = f"http://{target_host}:{target_port}"
 
         # Vercel v13 requires files with base64 encoding

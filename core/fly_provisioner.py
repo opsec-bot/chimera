@@ -128,10 +128,15 @@ class FlyProvisioner:
         ip_data: Dict[str, Any] = resp.json() if resp.ok else {}
         vm_ip = ip_data.get("address", machine.get("private_ip", "unknown"))
 
+        # Fly VMs get IPv6 fdaa:... addresses — Vercel rewrites choke on colons
+        # Use the app's fly.dev hostname instead for proxy destinations
+        vm_hostname = f"{app_name}.fly.dev"
+
         return {
             "app_name": app_name,
             "vm_id": vm_id,
             "ip": vm_ip,
+            "hostname": vm_hostname,    # use this for Vercel rewrites
             "internal_port": internal_port,
             "session_key": session_key,
             "region": self.region,
