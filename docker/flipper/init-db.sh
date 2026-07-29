@@ -18,9 +18,11 @@ if [ ! -f "$PG_DATA/PG_VERSION" ]; then
     su postgres -c "initdb -D $PG_DATA --auth-local=trust --auth-host=trust"
 fi
 
-# Start PostgreSQL
+# Start PostgreSQL — log to /tmp (postgres user can't write to /var/log)
 echo "[flipper-db] Starting PostgreSQL..."
-su postgres -c "pg_ctl -D $PG_DATA -l /var/log/postgresql.log start -o '-c listen_addresses=localhost'"
+touch /tmp/postgresql.log
+chown postgres:postgres /tmp/postgresql.log
+su postgres -c "pg_ctl -D $PG_DATA -l /tmp/postgresql.log start -o '-c listen_addresses=localhost'"
 
 # Wait for it to be ready
 for i in $(seq 1 30); do
