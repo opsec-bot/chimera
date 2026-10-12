@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Rust / Anchor build artifacts
+target/
+**/target/
+*.so
+!out/*.so
+
+# Logs and debug output
+*.log
+srv_err*.txt
+srv_out*.txt
+anchor_install*.txt
+server/err.txt
+server/out.txt
+server/srv_err.txt
+server/srv_log.txt
+server/srv_out.txt
+scripts/traverse_err.txt
+scripts/traverse_out.txt
+prettier_errors*.log
+
+# Secrets — NEVER commit
+.helius_key
+**/.helius_key
+*.env
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Old nested reconstruction dir (VS Code lock artifact, empty)
+reconstruction/

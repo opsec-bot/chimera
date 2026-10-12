@@ -41,6 +41,7 @@ class FlyProvisioner:
         env: Optional[Dict[str, str]] = None,
         memory_mb: int = 512,
         machine_type: str = "shared-cpu-1x",
+        internal_port: int = 8443,
     ) -> Dict[str, Any]:
         """Create a new Fly app + machine running the specified image.
 
@@ -50,10 +51,12 @@ class FlyProvisioner:
             env: Additional environment variables to inject into the VM.
             memory_mb: VM memory in MB. Flipper needs 1024+.
             machine_type: Fly machine type. Flipper needs shared-cpu-2x+.
+            internal_port: Port the image listens on. C2 uses 8443;
+                the drainer backend (node server) uses 3000.
         """
         app_name = self._app_name(suffix)
         session_key = secrets.token_hex(16)
-        internal_port = 8443
+        vm_port = internal_port
 
         # 1. Create the Fly app
         resp = requests.post(
@@ -73,46 +76,14 @@ class FlyProvisioner:
         # 2. Build env — merge defaults with caller-provided overrides
         vm_env: Dict[str, str] = {
             "SESSION_KEY": session_key,
-            "LISTEN_PORT": str(internal_port),
+            "LISTEN_PORT": str(vm_port),
             "PROXY_MODE": "resi",
         }
         if env:
             vm_env.update(env)
 
         # 3. Launch a machine from the specified Docker image
-        # Per Fly Machines API: region goes at top level, guest resources
-        # go in config.guest, services use ports with handlers
-        machine_config: Dict[str, Any] = {
-            "region": self.region,
-            "config": {
-                "image": image,
-                "auto_destroy": False,
-                "env": vm_env,
-                "guest": {
-                    "cpu_kind": "shared",
-                    "cpus": 1,
-                    "memory_mb": memory_mb,
-                },
-                "services": [
-                    {
-                        "internal_port": internal_port,
-                        "protocol": "tcp",
-                        "concurrency": {
-                            "type": "requests",
-                            "hard_limit": 1000,
-                            "soft_limit": 500
-                        },
-                        "ports": [
-                            {"port": 8443, "handlers": ["http", "tls"]},
-                        ],
-                    }
-                ],
-            },
-        }
-
-        # Use machine_type as a size preset if it's not the default
-        if machine_type and machine_type != "shared-cpu-1x":
-            machine_config["config"]["size"] = machine_type
+        machine_config = self._machine_config(image, vm_env, memory_mb, machine_type, vm_port)
 
         resp = requests.post(
             f"{self.BASE}/apps/{app_name}/machines",
@@ -148,11 +119,56 @@ class FlyProvisioner:
             "vm_id": vm_id,
             "ip": vm_ip,
             "hostname": vm_hostname,    # use this for Vercel rewrites
-            "internal_port": internal_port,
+            "internal_port": vm_port,
             "session_key": session_key,
             "region": self.region,
             "image": image,
         }
+
+    def _machine_config(
+        self,
+        image: str,
+        vm_env: Dict[str, str],
+        memory_mb: int,
+        machine_type: str,
+        vm_port: int,
+    ) -> Dict[str, Any]:
+        """Build a Machines-API machine config dict (testable without network).
+
+        Per Fly Machines API: region goes at top level, guest resources
+        go in config.guest, services use ports with handlers.
+        """
+        machine_config: Dict[str, Any] = {
+            "region": self.region,
+            "config": {
+                "image": image,
+                "auto_destroy": False,
+                "env": vm_env,
+                "guest": {
+                    "cpu_kind": "shared",
+                    "cpus": 1,
+                    "memory_mb": memory_mb,
+                },
+                "services": [
+                    {
+                        "internal_port": vm_port,
+                        "protocol": "tcp",
+                        "concurrency": {
+                            "type": "requests",
+                            "hard_limit": 1000,
+                            "soft_limit": 500
+                        },
+                        "ports": [
+                            {"port": vm_port, "handlers": ["http", "tls"]},
+                        ],
+                    }
+                ],
+            },
+        }
+        # Use machine_type as a size preset if it's not the default
+        if machine_type and machine_type != "shared-cpu-1x":
+            machine_config["config"]["size"] = machine_type
+        return machine_config
 
     def _wait_for_state(self, app_name: str, vm_id: str, target: str, timeout: int = 120):
         deadline = time.time() + timeout

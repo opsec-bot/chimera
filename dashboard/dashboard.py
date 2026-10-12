@@ -86,7 +86,10 @@ class DashboardState:
 
             fly: dict[str, Any] = current["fly"]
             session_key: str = str(current["config"]["key"])
-            base_url = f"http://{fly['ip']}:{fly['internal_port']}"
+            # Prefer the fly.dev hostname — the VM's 'ip' can be a private IPv6
+            # (fdaa:) that's unreachable from outside the Fly network
+            host = fly.get("hostname") or fly["ip"]
+            base_url = f"http://{host}:{fly['internal_port']}"
 
             headers = {"X-CSRF-Token": session_key}
 

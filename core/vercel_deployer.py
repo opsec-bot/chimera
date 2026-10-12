@@ -245,6 +245,107 @@ class VercelDeployer:
         }
 
     # ------------------------------------------------------------------
+    # Stable-project deployment (customer sites)
+    # ------------------------------------------------------------------
+    def deploy_to_project(self, project_name: str, files: Dict[str, str]) -> Dict[str, Any]:
+        """Deploy files to a PERSISTENT project — the URL stays stable across
+        deployments (customer sites). The caller supplies vercel.json.
+
+        Unlike deploy_custom: no new project per cycle, no teardown, and the
+        files dict is used verbatim (no injected vercel.json).
+        """
+        team_id = self._resolve_team()
+
+        # 1. Create the project, or fetch the existing one by name.
+        #    ssoProtection "preview": new Vercel teams default to protecting
+        #    ALL deployments with SSO — that would force customers onto custom
+        #    domains. Preview-only keeps production URLs public.
+        resp = requests.post(
+            f"{self.BASE}/projects",
+            headers=self.headers,
+            params={"teamId": team_id},
+            json={
+                "name": project_name,
+                "ssoProtection": {"deploymentType": "preview"},
+            },
+        )
+        if resp.status_code == 409 or (not resp.ok and "exist" in resp.text.lower()):
+            # Already exists — look it up
+            resp = requests.get(
+                f"https://api.vercel.com/v9/projects/{project_name}",
+                headers=self.headers,
+                params={"teamId": team_id},
+            )
+            if not resp.ok:
+                raise RuntimeError(
+                    f"Vercel API: project '{project_name}' not found after 409: "
+                    f"{resp.status_code} {resp.text}"
+                )
+        elif not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create project '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
+        project = resp.json()
+        project_id = project["id"]
+
+        # 2. Build the deployment file list
+        file_list = [self._encode_file(filename, content) for filename, content in files.items()]
+
+        # 3. Create deployment into the existing project
+        resp = requests.post(
+            f"{self.BASE}/deployments",
+            headers=self.headers,
+            params={"teamId": team_id, "projectId": project_id, "skipAutoDetectionConfirmation": "1"},
+            json={
+                "name": project_name,
+                "files": file_list,
+                "projectSettings": {
+                    "framework": None,
+                    "buildCommand": None,
+                    "outputDirectory": None,
+                    "installCommand": None,
+                },
+                "target": "production",
+            },
+        )
+        if not resp.ok:
+            raise RuntimeError(
+                f"Vercel API: failed to create deployment for '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
+        deployment = resp.json()
+        deployment_id = deployment["id"]
+        deployment_url = deployment.get("url", f"{project_name}.vercel.app")
+        self._wait_ready(deployment_id, team_id, timeout=120)
+
+        return {
+            "project_name": project_name,
+            "project_id": project_id,
+            "deployment_url": deployment_url,
+            "deployment_id": deployment_id,
+        }
+
+    # ------------------------------------------------------------------
+    # Teardown (customer sites)
+    # ------------------------------------------------------------------
+    def delete_project(self, project_name: str) -> None:
+        """Delete a Vercel project by name (customer site teardown).
+        Idempotent — a missing project is not an error."""
+        team_id = self._resolve_team()
+        resp = requests.delete(
+            f"https://api.vercel.com/v9/projects/{project_name}",
+            headers=self.headers,
+            params={"teamId": team_id},
+        )
+        # 200/204 = deleted, 404 = already gone — both fine
+        if resp.status_code not in (200, 204, 404):
+            raise RuntimeError(
+                f"Vercel API: failed to delete project '{project_name}': "
+                f"{resp.status_code} {resp.text}"
+            )
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     def _vercel_config(self, target: str, proxy_all: bool = False) -> str:

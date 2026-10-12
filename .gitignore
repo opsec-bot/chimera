@@ -182,3 +182,17 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Real credentials — never committed
+config.yaml
+
+# Customer registry (persisted state, not code)
+data/
+
+# Yale module (node deps, bot env + build logs)
+yale/server/node_modules/
+yale/bot/node_modules/
+yale/bot/.env
+yale/bot/builds/
+yale/bot/access.json
+yale/server/config.js

@@ -42,10 +42,20 @@ chimera/
 │
 ├── config.example.yaml          # Copy to config.yaml, fill in credentials
 ├── requirements.txt             # Top-level Python deps
+├── yale/                        # Solana+SPL drainer module (docs/yale.md)
+│   ├── server/                   # backend (Fly app chimera-drainer)
+│   ├── bot/                      # Telegram customer bot
+│   ├── programs/                 # on-chain relay program (Anchor)
+│   └── scripts/, tests/, localnet/
+│
+├── docs/                        # SETUP.md, yale.md, chimera-core.md, ...
+├── config.example.yaml          # Copy to config.yaml, fill in credentials
 └── README.md
 ```
 
 ## Quick Start
+
+Full setup: [docs/SETUP.md](docs/SETUP.md) — module docs in [docs/](docs/).
 
 ```bash
 # 1. Install deps

