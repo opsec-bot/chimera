@@ -85,7 +85,7 @@ cd yale/bot && npm start
 | /build <wallet> | same, direct |
 | /zip <wallet> | raw payload zip (self-hosting mode) |
 | /stats | build counts (admin) |
-
+ 
 ## Testing
 
 ```bash

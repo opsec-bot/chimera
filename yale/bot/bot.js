@@ -84,7 +84,10 @@ async function sendDocument(chatId, filename, buffer, caption) {
   const form = new FormData();
   form.append("chat_id", String(chatId));
   form.append("document", new Blob([buffer]), filename);
-  if (caption) form.append("caption", caption);
+  if (caption) {
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+  }
   const res = await fetch(`${TG}/sendDocument`, { method: "POST", body: form });
   return res.json();
 }
