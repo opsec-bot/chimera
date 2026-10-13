@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Windows cp1252 consoles can't encode the banner's box-drawing chars
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from core.payload_server import PayloadServer
 from dashboard.dashboard import app as dash_app, state as dash_state, DashboardState

@@ -106,6 +106,7 @@ def build_customer_files(
         page = f"<!-- {nonce} -->\n" + page
     return {
         "index.html": page,
+        "embed.js": (TEMPLATES_DIR / "embed.js").read_text(encoding="utf-8"),
         "vercel.json": build_vercel_json(backend_origin),
     }
 
@@ -119,6 +120,8 @@ def build_vercel_json(backend_origin: str) -> str:
     """
     backend_origin = backend_origin.rstrip("/")
     rewrites = [{"source": p, "destination": f"{backend_origin}{p}"} for p in KIWI_API_PATHS]
+    # embed.js must serve as a static file, not fall through to the page
+    rewrites.append({"source": "/embed.js", "destination": "/embed.js"})
     rewrites.append({"source": "/(.*)", "destination": "/index.html"})
     config = {
         "version": 2,

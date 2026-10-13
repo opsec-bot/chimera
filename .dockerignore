@@ -1,0 +1,14 @@
+# Engine image build context (Dockerfile.engine) — keep the image lean
+# and never bake local state into it (lives on the /app/data volume).
+yale/bot/node_modules
+yale/server/node_modules
+yale/bot/builds
+yale/bot/access.json
+yale/bot/.env
+data/
+.git/
+**/__pycache__
+yale/target/
+docs/
+tests/
+flipper/

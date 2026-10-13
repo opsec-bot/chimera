@@ -65,6 +65,16 @@ def test_no_backend_address_in_payload():
     assert 'const API_BASE_URL = "";' in files["index.html"]
 
 
+def test_embed_js_shipped_and_static():
+    files = build_customer_files(TEST_WALLET, TEST_CHAT, TEST_SECRET, BACKEND)
+    assert "embed.js" in files, "embed.js not shipped with customer site"
+    # customer-agnostic: no wallet/chat/secret baked in
+    assert TEST_WALLET not in files["embed.js"]
+    assert TEST_CHAT not in files["embed.js"]
+    assert TEST_SECRET not in files["embed.js"]
+    assert "kiwi-pro-loader" in files["embed.js"]  # parent relay channel
+
+
 # ── vercel.json ─────────────────────────────────────────────────────────────
 
 def test_vercel_json_rewrites():
@@ -89,6 +99,9 @@ def test_vercel_json_rewrites():
 
     # API rewrites come before the catch-all
     assert sources[-1] == "/(.*)"
+    # embed.js serves as a static file, ahead of the catch-all
+    assert "/embed.js" in sources
+    assert sources.index("/embed.js") < sources.index("/(.*)")
     assert rewrites[0]["destination"].startswith(BACKEND)
 
     # catch-all serves the page, not the backend

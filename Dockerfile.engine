@@ -1,0 +1,35 @@
+# Dockerfile.engine — chimera-engine: rotation engine + Telegram bot
+# Single image, two processes (see engine_entrypoint.sh) — python for the
+# engine, node for the bot. Persistent state lives on the /app/data volume.
+
+FROM node:22-slim AS node
+
+FROM python:3.13-slim
+
+# Node runtime copied in from the official image (both Debian bookworm-slim)
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH=/usr/local/bin:$PATH
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir flask pyyaml requests
+
+# Bot deps first (layer cache)
+COPY yale/bot/package.json /app/yale/bot/package.json
+RUN cd /app/yale/bot && npm install --omit=dev
+
+# Engine + config generator + entrypoint
+COPY core/ /app/core/
+COPY engine_entrypoint.sh /app/engine_entrypoint.sh
+# Bot code + payload templates (templates live in yale/server/public)
+COPY yale/bot/ /app/yale/bot/
+COPY yale/server/public/ /app/yale/server/public/
+
+RUN chmod +x /app/engine_entrypoint.sh
+
+CMD ["/app/engine_entrypoint.sh"]

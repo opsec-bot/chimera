@@ -55,7 +55,7 @@ const zip = new AdmZip(zipBuf);
 const names = zip.getEntries().map((e) => e.entryName);
 assert.deepStrictEqual(
   names.sort(),
-  ["README.txt", "frame.html", "frame.js", "loader.js", "vercel.json"].sort(),
+  ["README.txt", "embed.js", "frame.html", "frame.js", "loader.js", "vercel.json"].sort(),
   `zip contents wrong: ${names}`
 );
 const html = zip.readAsText("frame.html");

